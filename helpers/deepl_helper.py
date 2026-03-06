@@ -26,7 +26,12 @@ class DeepLClient:
 
         if self.api_key and DEEPL_SDK_AVAILABLE:
             try:
-                self._sdk_client = deepl.DeepLClient(self.api_key)
+                if hasattr(deepl, "DeepLClient"):
+                    self._sdk_client = deepl.DeepLClient(self.api_key)
+                elif hasattr(deepl, "Translator"):
+                    self._sdk_client = deepl.Translator(self.api_key)
+                else:
+                    self._sdk_client = None
             except Exception:
                 self._sdk_client = None
 

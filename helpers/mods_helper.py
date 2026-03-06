@@ -489,10 +489,20 @@ def parse_lua_variables(text: str) -> dict[str, str]:
     return variables
 
 
+def _is_probable_lang_key(key: str) -> bool:
+    normalized = normalize_lang_code(key)
+    if normalized in LANG_ALIASES:
+        return True
+    for aliases in LANG_ALIASES.values():
+        if normalized in aliases:
+            return True
+    return False
+
+
 def parse_strings_lua(file_path: Path) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
     text = read_text_with_fallback(file_path)
 
-    return_match = re.search(r"return\s*\{", text)
+    return_match = re.search(r"\breturn\s*\{", text)
     preamble = text[: return_match.start()] if return_match else text
     variables = parse_lua_variables(preamble)
 
@@ -504,15 +514,20 @@ def parse_strings_lua(file_path: Path) -> tuple[dict[str, dict[str, str]], dict[
     top_level: dict[str, str] = dict(variables)
 
     for entry in split_top_level_lua_entries(table):
-        match = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)\s*$", entry, flags=re.S)
-        if not match:
+        key_expr, raw_value = parse_lua_table_entry(entry)
+        if key_expr is None or raw_value is None:
             continue
 
-        key = match.group(1)
-        raw_value = match.group(2).strip()
+        resolved_key = eval_lua_expression(key_expr, variables)
+        if resolved_key is None:
+            continue
+
+        key = str(resolved_key)
+        raw_value = raw_value.strip()
         if raw_value.startswith("{"):
-            lang_key = canonical_lang_code(key)
-            lang_tables.setdefault(lang_key, {}).update(parse_lua_string_table(raw_value, variables))
+            if _is_probable_lang_key(key):
+                lang_key = canonical_lang_code(key)
+                lang_tables.setdefault(lang_key, {}).update(parse_lua_string_table(raw_value, variables))
         else:
             parsed = eval_lua_expression(raw_value, variables)
             if parsed is not None:
