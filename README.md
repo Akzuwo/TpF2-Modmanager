@@ -6,7 +6,7 @@ Dieses README enthaelt eine kurze Bedienungsanleitung in Deutsch und Englisch.
 ## Deutsch
 
 ### Ueberblick
-Desktop-Tool (Tkinter) zum Verwalten von Transport Fever 2 Mods:
+Desktop-Tool (PySide6) zum Verwalten von Transport Fever 2 Mods:
 - Mods-Ordner scannen und Mod-Infos anzeigen
 - Mods suchen/filtern
 - Archive (`.zip`, `.7z`, `.rar`) installieren (inkl. Drag & Drop, falls verfuegbar)
@@ -21,10 +21,10 @@ Desktop-Tool (Tkinter) zum Verwalten von Transport Fever 2 Mods:
 
 Optionale Python-Pakete:
 - `Pillow` fuer Bildvorschau
-- `tkinterdnd2` fuer Drag & Drop
 - `py7zr` fuer `.7z`-Archive
 - `rarfile` fuer `.rar`-Archive
 - `deepl` fuer DeepL SDK (HTTP-Fallback ist eingebaut)
+- `PySide6` fuer das Desktop-GUI
 
 Optionales System-Tool:
 - `7z` CLI als Fallback beim Entpacken
@@ -33,7 +33,7 @@ Optionales System-Tool:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install pillow tkinterdnd2 py7zr rarfile deepl
+pip install PySide6 pillow py7zr rarfile deepl
 ```
 
 ### Start
@@ -73,7 +73,7 @@ Hinweis: `config.json` sollte nicht mit sensiblen Werten gepusht werden.
 ### Fehlerbehebung
 - `.7z` kann nicht entpackt werden: `py7zr` installieren oder `7z` CLI bereitstellen.
 - `.rar` kann nicht entpackt werden: `rarfile` installieren und `unrar`/`bsdtar` oder `7z` verfuegbar machen.
-- Kein Drag & Drop: `tkinterdnd2` installieren.
+- Die App startet nicht: `PySide6` installieren.
 - Keine Vorschau: `Pillow` installieren und pruefen, ob die Mod ein `image_00.*` hat.
 
 ---
@@ -81,7 +81,7 @@ Hinweis: `config.json` sollte nicht mit sensiblen Werten gepusht werden.
 ## English
 
 ### Overview
-Desktop tool (Tkinter) for managing Transport Fever 2 mods:
+Desktop tool (PySide6) for managing Transport Fever 2 mods:
 - Scan the mods directory and list mod metadata
 - Search/filter mods
 - Install archives (`.zip`, `.7z`, `.rar`) including drag & drop (if available)
@@ -96,10 +96,10 @@ Desktop tool (Tkinter) for managing Transport Fever 2 mods:
 
 Optional Python packages:
 - `Pillow` for image previews
-- `tkinterdnd2` for drag & drop
 - `py7zr` for `.7z` archives
 - `rarfile` for `.rar` archives
 - `deepl` for DeepL SDK (HTTP fallback is built in)
+- `PySide6` for the desktop GUI
 
 Optional system tool:
 - `7z` CLI as extraction fallback
@@ -108,7 +108,7 @@ Optional system tool:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install pillow tkinterdnd2 py7zr rarfile deepl
+pip install PySide6 pillow py7zr rarfile deepl
 ```
 
 ### Run
@@ -148,5 +148,5 @@ Note: do not commit `config.json` when it contains sensitive values.
 ### Troubleshooting
 - Cannot extract `.7z`: install `py7zr` or provide `7z` CLI.
 - Cannot extract `.rar`: install `rarfile` and make `unrar`/`bsdtar` or `7z` available.
-- No drag & drop: install `tkinterdnd2`.
+- App does not start: install `PySide6`.
 - No preview image: install `Pillow` and verify the mod contains `image_00.*`.
