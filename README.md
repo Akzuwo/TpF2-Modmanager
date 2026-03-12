@@ -3,6 +3,24 @@
 Deutsch | English  
 Dieses README enthaelt eine kurze Bedienungsanleitung in Deutsch und Englisch.
 
+## EXE-Version / EXE Version
+
+### Deutsch
+- Wenn du die `.exe` nutzt, brauchst du kein Python.
+- Starte `TpF2-Modmanager.exe`.
+- Die neueste Version findest du hier: https://github.com/Akzuwo/TpF2-Modmanager/releases
+- Beim ersten Start wird `config.json` neben der `.exe` erstellt.
+- Stelle in der App dein `Mods-Verzeichnis` ein und klicke danach auf `Scannen`.
+- Falls du DeepL nutzen willst, trage deinen API-Key in `Einstellungen` ein.
+
+### English
+- If you use the `.exe`, you do not need Python.
+- Start `TpF2-Modmanager.exe`.
+- You can find the latest version here: https://github.com/Akzuwo/TpF2-Modmanager/releases
+- On first launch, `config.json` is created next to the `.exe`.
+- Set your `Mods folder` in the app and then click `Scan`.
+- If you want to use DeepL, enter your API key in `Settings`.
+
 ## Deutsch
 
 ### Ueberblick
