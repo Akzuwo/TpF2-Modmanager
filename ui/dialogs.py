@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from helpers.deepl_helper import DeepLClient
@@ -192,124 +193,91 @@ class DependencyPickerDialog(QDialog):
             self.accept()
 
 
-class ModDetailsDialog(QDialog):
+class ModDetailsPage(QWidget):
+    back_requested = Signal()
     open_dependency = Signal(dict)
 
-    def __init__(self, i18n, mod: dict, mod_lang: str, deepl_key: str, parent=None) -> None:
+    def __init__(self, i18n, parent=None) -> None:
         super().__init__(parent)
         self.i18n = i18n
-        self.mod = mod
-        self.mod_lang = mod_lang
-        self.deepl_key = deepl_key.strip()
+        self.mod: dict | None = None
+        self.mod_lang = "de"
+        self.deepl_key = ""
+        self.current_link_url = ""
+        self._build_ui()
 
-        mod_path = Path(self.mod.get("path", ""))
-        self.setWindowTitle(self.i18n.t("details_title", name=self.mod.get("name", mod_path.name)))
-        self.resize(1120, 760)
-
-        self._apply_lazy_translation()
-        self._build_ui(mod_path)
-
-    def _apply_lazy_translation(self) -> None:
-        if self.deepl_key and self.mod.get("description") and not self.mod.get("_deepl_done", False):
-            deepl = DeepLClient(self.deepl_key)
-            translated, deepl_error = deepl.translate(self.mod.get("description", ""), self.mod_lang)
-            self.mod["description_translated"] = translated
-            self.mod["deepl_error"] = deepl_error
-            self.mod["_deepl_done"] = True
-
-    def _build_ui(self, mod_path: Path) -> None:
+    def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(14)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(16)
 
-        details_tab = QFrame()
-        root.addWidget(details_tab)
-        details_layout = QVBoxLayout(details_tab)
-        details_layout.setContentsMargins(6, 6, 6, 6)
-        details_layout.setSpacing(14)
+        header = QHBoxLayout()
+        self.back_button = QPushButton("← " + self.i18n.t("back"))
+        self.back_button.setProperty("accent", True)
+        self.back_button.clicked.connect(self.back_requested.emit)
+        header.addWidget(self.back_button)
 
-        overview = QFrame()
-        overview.setObjectName("DetailCard")
-        overview_layout = QVBoxLayout(overview)
-        overview_layout.setContentsMargins(16, 16, 16, 16)
-        overview_layout.setSpacing(8)
+        self.header_title = QLabel("")
+        self.header_title.setObjectName("WindowTitle")
+        self.header_title.setWordWrap(True)
+        header.addWidget(self.header_title, 1)
+        root.addLayout(header)
 
-        title = QLabel(self.mod.get("name", "-"))
-        title.setObjectName("WindowTitle")
-        title.setWordWrap(True)
-        overview_layout.addWidget(title)
+        self.overview = QFrame()
+        self.overview.setObjectName("DetailCard")
+        self.overview_layout = QVBoxLayout(self.overview)
+        self.overview_layout.setContentsMargins(16, 16, 16, 16)
+        self.overview_layout.setSpacing(8)
 
-        overview_layout.addWidget(self._info_label(self.i18n.t("author", value=self.mod.get("author", "-"))))
-        overview_layout.addWidget(self._info_label(self.i18n.t("version", value=self.mod.get("version", "-"))))
-        overview_layout.addWidget(self._info_label(self.i18n.t("path", value=str(mod_path))))
+        self.author_label = self._info_label("")
+        self.version_label = self._info_label("")
+        self.path_label = self._info_label("")
+        self.description_label = self._info_label("")
+        self.translation_notice_label = self._info_label("")
+        self.available_languages_label = self._info_label("")
+        self.effective_language_label = self._info_label("")
+        self.deepl_error_label = self._info_label("")
+        self.link_button = QPushButton()
+        self.link_button.setProperty("subtle", True)
+        self.link_button.clicked.connect(self._open_current_link)
 
-        desc = self.mod.get("description_translated") or self.mod.get("description") or ""
-        if desc:
-            desc_label = self._info_label(self.i18n.t("description", value=desc))
-            desc_label.setWordWrap(True)
-            overview_layout.addWidget(desc_label)
+        for widget in [
+            self.author_label,
+            self.version_label,
+            self.path_label,
+            self.description_label,
+            self.translation_notice_label,
+            self.available_languages_label,
+            self.effective_language_label,
+            self.deepl_error_label,
+            self.link_button,
+        ]:
+            self.overview_layout.addWidget(widget)
 
-        if self.mod.get("translation_notice"):
-            label = self._info_label(self.i18n.t("translation_notice", value=self.mod.get("translation_notice")))
-            label.setObjectName("MutedLabel")
-            label.setWordWrap(True)
-            overview_layout.addWidget(label)
-        if self.mod.get("translation_available_languages"):
-            text = ", ".join(self.mod.get("translation_available_languages", []))
-            label = self._info_label(self.i18n.t("available_languages", value=text))
-            label.setWordWrap(True)
-            overview_layout.addWidget(label)
-        if self.mod.get("translation_effective_language"):
-            label = self._info_label(
-                self.i18n.t("effective_language", value=self.mod.get("translation_effective_language"))
-            )
-            overview_layout.addWidget(label)
-        if self.mod.get("deepl_error"):
-            label = self._info_label(self.i18n.t("deepl_note", value=self.mod.get("deepl_error")))
-            label.setObjectName("MutedLabel")
-            label.setWordWrap(True)
-            overview_layout.addWidget(label)
-
-        link = find_mod_link(self.mod.get("resolved_fields", self.mod.get("raw_fields", {})))
-        if link:
-            link_button = QPushButton(link)
-            link_button.setProperty("subtle", True)
-            link_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(link)))
-            overview_layout.addWidget(link_button)
-
-        details_layout.addWidget(overview)
+        root.addWidget(self.overview)
 
         content_row = QHBoxLayout()
         content_row.setSpacing(14)
-        details_layout.addLayout(content_row, 1)
+        root.addLayout(content_row, 1)
 
         fields_card = QFrame()
         fields_card.setObjectName("DetailCard")
         fields_layout = QVBoxLayout(fields_card)
         fields_layout.setContentsMargins(12, 12, 12, 12)
         fields_layout.setSpacing(10)
-
         fields_title = QLabel(self.i18n.t("details_tab"))
         fields_title.setObjectName("SectionTitle")
         fields_layout.addWidget(fields_title)
 
-        fields_table = QTableWidget(0, 3)
-        fields_table.setHorizontalHeaderLabels(
+        self.fields_table = QTableWidget(0, 3)
+        self.fields_table.setHorizontalHeaderLabels(
             [self.i18n.t("field"), self.i18n.t("value_resolved"), self.i18n.t("value_raw")]
         )
-        fields_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        fields_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        fields_table.verticalHeader().setVisible(False)
-        fields_table.horizontalHeader().setStretchLastSection(True)
-
-        raw_fields = self.mod.get("raw_fields", {})
-        fields = self.mod.get("resolved_fields", raw_fields)
-        for row, key in enumerate(sorted(fields.keys())):
-            fields_table.insertRow(row)
-            fields_table.setItem(row, 0, QTableWidgetItem(key))
-            fields_table.setItem(row, 1, QTableWidgetItem(str(fields.get(key, ""))))
-            fields_table.setItem(row, 2, QTableWidgetItem(str(raw_fields.get(key, ""))))
-        fields_layout.addWidget(fields_table)
+        self.fields_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.fields_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.fields_table.verticalHeader().setVisible(False)
+        self.fields_table.horizontalHeader().setStretchLastSection(True)
+        fields_layout.addWidget(self.fields_table)
         content_row.addWidget(fields_card, 3)
 
         side_col = QVBoxLayout()
@@ -321,20 +289,14 @@ class ModDetailsDialog(QDialog):
         dep_layout = QVBoxLayout(dep_card)
         dep_layout.setContentsMargins(12, 12, 12, 12)
         dep_layout.setSpacing(10)
-
         dep_title = QLabel(self.i18n.t("dependencies_label"))
         dep_title.setObjectName("SectionTitle")
         dep_layout.addWidget(dep_title)
 
-        dep_list = QListWidget()
-        for dep in self.mod.get("dependency_links", []):
-            target = dep.get("target")
-            text = f"{dep['id']} -> {target.get('name', dep['id'])}" if target else f"{dep['id']} (missing)"
-            item = QListWidgetItem(text)
-            item.setData(Qt.UserRole, target)
-            dep_list.addItem(item)
-        dep_list.itemDoubleClicked.connect(self._dependency_clicked)
-        dep_layout.addWidget(dep_list)
+        self.dep_list = QListWidget()
+        self.dep_list.itemDoubleClicked.connect(self._dependency_clicked)
+        dep_layout.addWidget(self.dep_list)
+
         side_col.addWidget(dep_card)
 
         preview_card = QFrame()
@@ -342,25 +304,131 @@ class ModDetailsDialog(QDialog):
         preview_layout = QVBoxLayout(preview_card)
         preview_layout.setContentsMargins(12, 12, 12, 12)
         preview_layout.setSpacing(10)
-
         preview_title = QLabel(self.i18n.t("preview_label"))
         preview_title.setObjectName("SectionTitle")
         preview_layout.addWidget(preview_title)
 
-        preview_label = QLabel(self.i18n.t("no_preview"))
-        preview_label.setAlignment(Qt.AlignCenter)
-        preview_label.setMinimumHeight(320)
-        preview_label.setWordWrap(True)
-        preview_layout.addWidget(preview_label, 1)
+        self.preview_label = QLabel(self.i18n.t("no_preview"))
+        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setMinimumHeight(320)
+        self.preview_label.setWordWrap(True)
+        preview_layout.addWidget(self.preview_label, 1)
+        side_col.addWidget(preview_card, 1)
+
+    def set_mod(
+        self,
+        mod: dict,
+        mod_lang: str,
+        deepl_key: str,
+    ) -> None:
+        self.mod = mod
+        self.mod_lang = mod_lang
+        self.deepl_key = deepl_key.strip()
+        self._apply_lazy_translation()
+
+        mod_path = Path(self.mod.get("path", ""))
+        self.header_title.setText(self.mod.get("name", "-"))
+        self.author_label.setText(self.i18n.t("author", value=self.mod.get("author", "-")))
+        self.version_label.setText(self.i18n.t("version", value=self.mod.get("version", "-")))
+        self.path_label.setText(self.i18n.t("path", value=str(mod_path)))
+
+        desc = self.mod.get("description_translated") or self.mod.get("description") or ""
+        self.description_label.setText(self.i18n.t("description", value=desc) if desc else "")
+        self.description_label.setVisible(bool(desc))
+
+        translation_notice = self._build_translation_notice()
+        self.translation_notice_label.setText(
+            self.i18n.t("translation_notice", value=translation_notice) if translation_notice else ""
+        )
+        self.translation_notice_label.setVisible(bool(translation_notice))
+
+        available = self.mod.get("translation_available_languages", [])
+        self.available_languages_label.setText(
+            self.i18n.t("available_languages", value=", ".join(available)) if available else ""
+        )
+        self.available_languages_label.setVisible(bool(available))
+
+        effective = self.mod.get("translation_effective_language")
+        self.effective_language_label.setText(
+            self.i18n.t("effective_language", value=effective) if effective else ""
+        )
+        self.effective_language_label.setVisible(bool(effective))
+
+        deepl_error = self.mod.get("deepl_error")
+        self.deepl_error_label.setText(self.i18n.t("deepl_note", value=deepl_error) if deepl_error else "")
+        self.deepl_error_label.setVisible(bool(deepl_error))
+
+        link = find_mod_link(self.mod.get("resolved_fields", self.mod.get("raw_fields", {})))
+        self.link_button.setVisible(bool(link))
+        self.current_link_url = link or ""
+        if link:
+            self.link_button.setText(link)
+        else:
+            self.link_button.setText("")
+
+        self.fields_table.setRowCount(0)
+        raw_fields = self.mod.get("raw_fields", {})
+        fields = self.mod.get("resolved_fields", raw_fields)
+        for row, key in enumerate(sorted(fields.keys())):
+            self.fields_table.insertRow(row)
+            self.fields_table.setItem(row, 0, QTableWidgetItem(key))
+            self.fields_table.setItem(row, 1, QTableWidgetItem(str(fields.get(key, ""))))
+            self.fields_table.setItem(row, 2, QTableWidgetItem(str(raw_fields.get(key, ""))))
+
+        self.dep_list.clear()
+        for dep in self.mod.get("dependency_links", []):
+            target = dep.get("target")
+            text = f"{dep['id']} -> {target.get('name', dep['id'])}" if target else f"{dep['id']} (missing)"
+            item = QListWidgetItem(text)
+            item.setData(Qt.UserRole, target)
+            self.dep_list.addItem(item)
 
         preview_path = find_preview_image(mod_path)
         pixmap = load_preview_pixmap(preview_path)
+        self.preview_label.setPixmap(QPixmap())
+        self.preview_label.setText(self.i18n.t("no_preview"))
         if pixmap is not None:
-            preview_label.setPixmap(
+            self.preview_label.setPixmap(
                 pixmap.scaled(360, 360, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
-            preview_label.setText("")
-        side_col.addWidget(preview_card, 1)
+            self.preview_label.setText("")
+
+    def update_texts(self) -> None:
+        self.back_button.setText("← " + self.i18n.t("back"))
+
+    def _apply_lazy_translation(self) -> None:
+        if self.deepl_key and self.mod and self.mod.get("description") and not self.mod.get("_deepl_done", False):
+            deepl = DeepLClient(self.deepl_key)
+            translated, deepl_error = deepl.translate(self.mod.get("description", ""), self.mod_lang)
+            self.mod["description_translated"] = translated
+            self.mod["deepl_error"] = deepl_error
+            self.mod["_deepl_done"] = True
+
+    def _build_translation_notice(self) -> str:
+        if not self.mod:
+            return ""
+
+        parts: list[str] = []
+        notice_key = str(self.mod.get("translation_notice_key", "") or "").strip()
+        notice_params = self.mod.get("translation_notice_params", {}) or {}
+        if notice_key:
+            parts.append(self.i18n.t(notice_key, **notice_params))
+
+        source_lang = str(self.mod.get("translation_effective_language", "") or "").strip()
+        description = str(self.mod.get("description", "") or "")
+        translated = str(self.mod.get("description_translated", "") or "")
+        deepl_error = str(self.mod.get("deepl_error", "") or "").strip()
+        if (
+            description
+            and translated
+            and translated != description
+            and not deepl_error
+            and source_lang
+            and source_lang != self.mod_lang
+        ):
+            parts.append(self.i18n.t("notice_deepl_applied", source=source_lang, target=self.mod_lang))
+
+        return " ".join(part for part in parts if part)
 
     def _info_label(self, text: str) -> QLabel:
         label = QLabel(text)
@@ -373,6 +441,10 @@ class ModDetailsDialog(QDialog):
         target = item.data(Qt.UserRole)
         if target:
             self.open_dependency.emit(target)
+
+    def _open_current_link(self) -> None:
+        if self.current_link_url:
+            QDesktopServices.openUrl(QUrl(self.current_link_url))
 
 
 def load_preview_pixmap(path: Path | None) -> QPixmap | None:

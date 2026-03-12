@@ -643,22 +643,29 @@ def build_translation_map(all_lang_tables: dict[str, dict[str, str]], all_top_le
         mapping.update(all_lang_tables.get(selected, {}))
         mapping.update(all_top_level)
 
-    notice = ""
+    notice_key = ""
+    notice_params: dict[str, str] = {}
     if selected and selected != primary:
         if selected == fallback:
-            notice = f"Uebersetzung fuer '{primary}' fehlt, fallback '{selected}' verwendet."
+            notice_key = "notice_translation_missing_fallback"
+            notice_params = {"primary": primary, "selected": selected}
         elif selected == "en":
-            notice = f"Uebersetzung fuer '{primary}'/{fallback} fehlt, fallback 'en' verwendet."
+            notice_key = "notice_translation_missing_english"
+            notice_params = {"primary": primary, "fallback": fallback}
         elif len(available_langs) == 1:
-            notice = f"Keine Uebersetzung fuer '{primary}'. Nur '{selected}' verfuegbar."
+            notice_key = "notice_translation_only_language"
+            notice_params = {"primary": primary, "selected": selected}
         else:
-            notice = f"Keine Uebersetzung fuer '{primary}'/{fallback}. Verwendet: '{selected}'."
+            notice_key = "notice_translation_other_language"
+            notice_params = {"primary": primary, "fallback": fallback, "selected": selected}
 
     return {
         "map": mapping,
         "available_languages": available_langs,
         "effective_language": selected,
-        "notice": notice,
+        "notice": "",
+        "notice_key": notice_key,
+        "notice_params": notice_params,
     }
 
 
@@ -794,6 +801,8 @@ def parse_mod_lua(file_path: Path, primary_lang: str, fallback_lang: str, deepl_
         "translation_available_languages": trans_info["available_languages"],
         "translation_effective_language": trans_info["effective_language"],
         "translation_notice": trans_info["notice"],
+        "translation_notice_key": trans_info.get("notice_key", ""),
+        "translation_notice_params": trans_info.get("notice_params", {}),
         "dependencies": parse_dependencies(info_block),
         "dependency_links": [],
         "required_by": [],
@@ -838,6 +847,8 @@ def _build_mod_fallback(mod_lua: Path, mod_folder: Path | None = None) -> dict:
         "translation_available_languages": [],
         "translation_effective_language": "",
         "translation_notice": "",
+        "translation_notice_key": "",
+        "translation_notice_params": {},
         "dependencies": [],
         "dependency_links": [],
         "required_by": [],

@@ -12,7 +12,7 @@ except ImportError:
 
 LANG_TO_DEEPL = {
     "de": "DE",
-    "en": "EN",
+    "en": "EN-US",
     "es": "ES",
     "it": "IT",
 }

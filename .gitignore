@@ -1,3 +1,7 @@
 config.json
 __pycache__/
 *.py[cod]
+build/
+dist/
+app.spec
+build_pyinstaller.bat

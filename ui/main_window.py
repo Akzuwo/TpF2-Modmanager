@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -32,7 +33,7 @@ from helpers.archive_helper import ARCHIVE_EXTENSIONS
 from helpers.config_helper import load_config, save_config
 from helpers.i18n import APP_LANGS, I18N
 from helpers.mods_helper import SUPPORTED_MOD_LANGS
-from ui.dialogs import DependencyPickerDialog, ModDetailsDialog, SettingsDialog
+from ui.dialogs import ModDetailsPage, SettingsDialog
 from ui.workers import InstallWorker, ScanWorker
 
 
@@ -94,17 +95,20 @@ class DropZone(QFrame):
 
 
 class ModManagerMainWindow(QMainWindow):
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self, resource_dir: Path, data_dir: Path) -> None:
         super().__init__()
-        self.base_dir = base_dir
-        self.config_path = self.base_dir / "config.json"
-        self.app_strings_path = self.base_dir / "resources" / "app_strings.json"
+        self.resource_dir = resource_dir
+        self.data_dir = data_dir
+        self.config_path = self.data_dir / "config.json"
+        self.app_strings_path = self.resource_dir / "resources" / "app_strings.json"
+        self.logo_path = self.resource_dir / "media" / "logo.png"
 
         self.config = load_config(self.config_path)
         self.i18n = I18N(self.app_strings_path, self.config.get("app_language", "de"))
 
         self.mods_data: list[dict] = []
         self.filtered_mods: list[dict] = []
+        self.current_mod: dict | None = None
 
         self.scan_thread: QThread | None = None
         self.scan_worker: ScanWorker | None = None
@@ -139,10 +143,18 @@ class ModManagerMainWindow(QMainWindow):
         self.window_title_label = QLabel()
         self.window_title_label.setObjectName("WindowTitle")
         self.window_title_label.setWordWrap(True)
+        self.window_title_label.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(self.window_title_label)
+
+        self.logo_label = QLabel()
+        self.logo_label.setAlignment(Qt.AlignCenter)
+        self.logo_label.setMinimumHeight(120)
+        self.logo_label.setMaximumHeight(180)
+        sidebar_layout.addWidget(self.logo_label)
 
         subtitle = QLabel("Transport Fever 2")
         subtitle.setObjectName("MutedLabel")
+        subtitle.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(subtitle)
 
         self.settings_button = QPushButton()
@@ -162,9 +174,13 @@ class ModManagerMainWindow(QMainWindow):
 
         root.addWidget(sidebar)
 
-        content = QVBoxLayout()
+        self.content_stack = QStackedWidget()
+        root.addWidget(self.content_stack, 1)
+
+        self.overview_page = QWidget()
+        content = QVBoxLayout(self.overview_page)
+        content.setContentsMargins(0, 0, 0, 0)
         content.setSpacing(16)
-        root.addLayout(content, 1)
 
         top_card = QFrame()
         top_card.setObjectName("PanelCard")
@@ -254,7 +270,7 @@ class ModManagerMainWindow(QMainWindow):
         table_header.addWidget(self.table_summary_label)
         table_layout.addLayout(table_header)
 
-        self.table = QTableWidget(0, 5)
+        self.table = QTableWidget(0, 4)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -283,6 +299,13 @@ class ModManagerMainWindow(QMainWindow):
         splitter.addWidget(log_card)
         splitter.setSizes([520, 220])
 
+        self.content_stack.addWidget(self.overview_page)
+
+        self.details_page = ModDetailsPage(self.i18n)
+        self.details_page.back_requested.connect(self.show_overview_page)
+        self.details_page.open_dependency.connect(self.show_mod_details)
+        self.content_stack.addWidget(self.details_page)
+
         self.context_menu = QMenu(self)
         self.open_folder_action = QAction(self)
         self.open_folder_action.triggered.connect(self.open_selected_mod_folder)
@@ -295,6 +318,7 @@ class ModManagerMainWindow(QMainWindow):
     def _apply_language(self) -> None:
         self.setWindowTitle(self.i18n.t("app_title"))
         self.window_title_label.setText(self.i18n.t("app_title"))
+        self._update_branding()
         self.mods_dir_label.setText(self.i18n.t("mods_dir"))
         self.browse_button.setText(self.i18n.t("browse"))
         self.scan_button.setText(self.i18n.t("scan"))
@@ -312,15 +336,30 @@ class ModManagerMainWindow(QMainWindow):
                 self.i18n.t("col_name"),
                 self.i18n.t("col_author"),
                 self.i18n.t("col_version"),
-                self.i18n.t("col_dependencies"),
                 self.i18n.t("col_path"),
             ]
         )
         self.table.setColumnWidth(0, 250)
         self.table.setColumnWidth(1, 180)
         self.table.setColumnWidth(2, 100)
-        self.table.setColumnWidth(3, 340)
+        self.table.setColumnWidth(3, 520)
+        self.details_page.update_texts()
+        if self.current_mod is not None:
+            self.details_page.set_mod(
+                self.current_mod,
+                self.config.get("language", "de"),
+                self.config.get("deepl_api_key", ""),
+            )
         self.refresh_table()
+
+    def _update_branding(self) -> None:
+        self.logo_label.clear()
+        if not self.logo_path.exists():
+            return
+        pixmap = QPixmap(str(self.logo_path))
+        if pixmap.isNull():
+            return
+        self.logo_label.setPixmap(pixmap.scaledToWidth(180, Qt.SmoothTransformation))
 
     def _persist_all(self) -> None:
         self.config["mods_path"] = self.path_edit.text().strip()
@@ -449,7 +488,6 @@ class ModManagerMainWindow(QMainWindow):
                 mod.get("name", ""),
                 mod.get("author", ""),
                 mod.get("version", ""),
-                self.format_dependency_cell(mod),
                 mod.get("path", ""),
             ]
             for column, value in enumerate(values):
@@ -487,22 +525,7 @@ class ModManagerMainWindow(QMainWindow):
         mod = item.data(Qt.UserRole)
         if not mod:
             return
-        if item.column() == 3 and self.open_dependency_from_mod(mod):
-            return
         self.show_mod_details(mod)
-
-    def open_dependency_from_mod(self, mod: dict) -> bool:
-        links = [d for d in mod.get("dependency_links", []) if d.get("target")]
-        if not links:
-            return False
-        if len(links) == 1:
-            self.show_mod_details(links[0]["target"])
-            return True
-
-        dialog = DependencyPickerDialog(self.i18n, links, self)
-        dialog.dependency_selected.connect(self.show_mod_details)
-        dialog.exec()
-        return True
 
     def show_mod_details(self, mod: dict) -> None:
         mod_path = Path(mod.get("path", ""))
@@ -511,16 +534,16 @@ class ModManagerMainWindow(QMainWindow):
             QMessageBox.critical(self, self.i18n.t("error"), self.i18n.t("missing_mod_lua", path=str(mod_lua)))
             return
 
-        dialog = ModDetailsDialog(
-            self.i18n,
+        self.current_mod = mod
+        self.details_page.set_mod(
             mod,
             self.config.get("language", "de"),
             self.config.get("deepl_api_key", ""),
-            self,
         )
-        dialog.open_dependency.connect(self.show_mod_details)
-        dialog.exec()
-        self.refresh_table()
+        self.content_stack.setCurrentWidget(self.details_page)
+
+    def show_overview_page(self) -> None:
+        self.content_stack.setCurrentWidget(self.overview_page)
 
     def open_selected_mod_folder(self) -> None:
         mod = self.get_selected_mod()

@@ -11,7 +11,7 @@ Desktop-Tool (PySide6) zum Verwalten von Transport Fever 2 Mods:
 - Mods suchen/filtern
 - Archive (`.zip`, `.7z`, `.rar`) installieren (inkl. Drag & Drop, falls verfuegbar)
 - Abhaengigkeiten anzeigen und aufloesen
-- Mod-Details inkl. `mod.lua`-Ansicht und Preview-Bild
+- Mod-Details mit aufgeloesten Feldern und Preview-Bild
 - Mod-Ordner direkt oeffnen oder Mod loeschen
 - UI-Sprache (`de`/`en`) sowie Mod-Textsprache (`de`/`en`/`es`/`it`)
 
@@ -48,9 +48,8 @@ python app.py
 4. In der Tabelle nach Name/Autor/Version/Abhaengigkeiten suchen (Suchfeld oben).
 5. Mod-Details oeffnen:
    - Doppelklick auf eine Zeile fuer Detailansicht.
-   - Doppelklick auf die Abhaengigkeiten-Spalte, um zu abhaengigen Mods zu springen.
 6. Mods installieren:
-   - `Archive installieren` klicken und Archiv(e) waehlen, oder
+   - `Manuelle Installation` klicken und Archiv(e) waehlen, oder
    - Archiv/Ordner per Drag & Drop auf die Drop-Zone ziehen (wenn verfuegbar).
 7. Rechtsklick auf Mod-Zeile fuer Kontextmenue:
    - Mod-Ordner oeffnen
@@ -86,7 +85,7 @@ Desktop tool (PySide6) for managing Transport Fever 2 mods:
 - Search/filter mods
 - Install archives (`.zip`, `.7z`, `.rar`) including drag & drop (if available)
 - Show and resolve dependencies
-- Open mod details with `mod.lua` view and preview image
+- Open mod details with resolved fields and preview image
 - Open mod folder directly or delete a mod
 - UI language (`de`/`en`) and mod text language (`de`/`en`/`es`/`it`)
 
@@ -123,9 +122,8 @@ python app.py
 4. Use the search box to filter by name/author/version/dependencies.
 5. Open mod details:
    - Double-click a row to open details.
-   - Double-click the dependency column to jump to dependency targets.
 6. Install mods:
-   - Click `Install archives` and select archives, or
+   - Click `Manual installation` and select archives, or
    - Drag archive/folder files onto the drop zone (if available).
 7. Right-click a mod row for context actions:
    - Open mod folder
