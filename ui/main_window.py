@@ -1,6 +1,5 @@
 import os
 import shutil
-import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -8,6 +7,7 @@ from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -28,12 +28,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from helpers.archive_helper import ARCHIVE_EXTENSIONS, extract_archive, find_valid_mod_roots, install_mod_folder
+from helpers.archive_helper import ARCHIVE_EXTENSIONS
 from helpers.config_helper import load_config, save_config
 from helpers.i18n import APP_LANGS, I18N
 from helpers.mods_helper import SUPPORTED_MOD_LANGS
 from ui.dialogs import DependencyPickerDialog, ModDetailsDialog, SettingsDialog
-from ui.workers import ScanWorker
+from ui.workers import InstallWorker, ScanWorker
 
 
 class DropZone(QFrame):
@@ -109,6 +109,9 @@ class ModManagerMainWindow(QMainWindow):
         self.scan_thread: QThread | None = None
         self.scan_worker: ScanWorker | None = None
         self.scan_in_progress = False
+        self.install_thread: QThread | None = None
+        self.install_worker: InstallWorker | None = None
+        self.install_in_progress = False
 
         self.setWindowTitle(self.i18n.t("app_title"))
         self.resize(1380, 860)
@@ -145,19 +148,6 @@ class ModManagerMainWindow(QMainWindow):
         self.settings_button = QPushButton()
         self.settings_button.clicked.connect(self.open_settings_dialog)
         sidebar_layout.addWidget(self.settings_button)
-
-        self.install_button = QPushButton()
-        self.install_button.setProperty("accent", True)
-        self.install_button.clicked.connect(self.install_archives_from_dialog)
-        sidebar_layout.addWidget(self.install_button)
-
-        self.open_folder_button = QPushButton()
-        self.open_folder_button.clicked.connect(self.open_selected_mod_folder)
-        sidebar_layout.addWidget(self.open_folder_button)
-
-        self.delete_button = QPushButton()
-        self.delete_button.clicked.connect(self.delete_selected_mod)
-        sidebar_layout.addWidget(self.delete_button)
 
         sidebar_layout.addStretch(1)
 
@@ -200,17 +190,18 @@ class ModManagerMainWindow(QMainWindow):
         self.scan_button.clicked.connect(self.scan)
         top_layout.addWidget(self.scan_button, 0, 4)
 
-        self.search_label = QLabel()
-        self.search_label.setObjectName("MutedLabel")
-        top_layout.addWidget(self.search_label, 1, 0)
-
         self.search_edit = QLineEdit()
         self.search_edit.textChanged.connect(self.refresh_table)
-        top_layout.addWidget(self.search_edit, 1, 1, 1, 3)
+        top_layout.addWidget(self.search_edit, 1, 0, 1, 4)
 
         self.clear_button = QPushButton()
         self.clear_button.clicked.connect(self.clear_search)
         top_layout.addWidget(self.clear_button, 1, 4)
+
+        self.install_button = QPushButton()
+        self.install_button.setProperty("accent", True)
+        self.install_button.clicked.connect(self.install_archives_from_dialog)
+        top_layout.addWidget(self.install_button, 2, 4)
 
         content.addWidget(top_card)
 
@@ -307,14 +298,11 @@ class ModManagerMainWindow(QMainWindow):
         self.mods_dir_label.setText(self.i18n.t("mods_dir"))
         self.browse_button.setText(self.i18n.t("browse"))
         self.scan_button.setText(self.i18n.t("scan"))
-        self.search_label.setText(self.i18n.t("search"))
         self.search_edit.setPlaceholderText(self.i18n.t("search"))
         self.clear_button.setText(self.i18n.t("clear"))
         self.install_button.setText(self.i18n.t("install_archives"))
         self.settings_button.setText(self.i18n.t("settings"))
-        self.open_folder_button.setText(self.i18n.t("menu_open_folder"))
-        self.delete_button.setText(self.i18n.t("menu_delete"))
-        self.drop_zone.setTexts(self.i18n.t("install_archives"), self.i18n.t("drop_hint"))
+        self.drop_zone.setTexts(self.i18n.t("install_mods"), self.i18n.t("drop_hint"))
         self.status_hint_label.setText(self.i18n.t("status_hint"))
         self.open_folder_action.setText(self.i18n.t("menu_open_folder"))
         self.delete_action.setText(self.i18n.t("menu_delete"))
@@ -340,6 +328,8 @@ class ModManagerMainWindow(QMainWindow):
         self.config["fallback_language"] = self.config.get("fallback_language", "en")
         self.config["app_language"] = self.config.get("app_language", "de")
         self.config["deepl_api_key"] = self.config.get("deepl_api_key", "")
+        self.config["parallel_install_enabled"] = bool(self.config.get("parallel_install_enabled", False))
+        self.config["max_parallel_workers"] = int(self.config.get("max_parallel_workers", 2))
         save_config(self.config_path, self.config)
 
     def log(self, message: str) -> None:
@@ -366,13 +356,13 @@ class ModManagerMainWindow(QMainWindow):
         self._persist_all()
         return root
 
-    def _set_scan_state(self, in_progress: bool) -> None:
-        self.scan_in_progress = in_progress
+    def _update_action_state(self) -> None:
+        busy = self.scan_in_progress or self.install_in_progress
         for widget in [self.scan_button, self.settings_button, self.browse_button, self.install_button]:
-            widget.setEnabled(not in_progress)
+            widget.setEnabled(not busy)
 
     def scan(self) -> None:
-        if self.scan_in_progress:
+        if self.scan_in_progress or self.install_in_progress:
             return
 
         root = self.get_mod_root()
@@ -382,7 +372,8 @@ class ModManagerMainWindow(QMainWindow):
         self.progress_bar.setRange(0, 1)
         self.progress_bar.setValue(0)
         self.progress_label.setText(self.i18n.t("scan_prepare"))
-        self._set_scan_state(True)
+        self.scan_in_progress = True
+        self._update_action_state()
 
         self.scan_thread = QThread(self)
         self.scan_worker = ScanWorker(root, self.config.get("language", "de"), self.config.get("fallback_language", "en"))
@@ -415,7 +406,8 @@ class ModManagerMainWindow(QMainWindow):
         self._cleanup_scan()
 
     def _cleanup_scan(self) -> None:
-        self._set_scan_state(False)
+        self.scan_in_progress = False
+        self._update_action_state()
         self.scan_worker = None
         self.scan_thread = None
 
@@ -579,7 +571,7 @@ class ModManagerMainWindow(QMainWindow):
 
     def open_settings_dialog(self) -> None:
         dialog = SettingsDialog(self.i18n, APP_LANGS, SUPPORTED_MOD_LANGS, self.config, self)
-        if dialog.exec() != dialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         self.config.update(dialog.values())
@@ -601,49 +593,67 @@ class ModManagerMainWindow(QMainWindow):
         self.install_inputs([Path(path) for path in selected])
 
     def install_inputs(self, paths: list[Path]) -> None:
-        if not paths:
+        if not paths or self.scan_in_progress or self.install_in_progress:
             return
 
         mods_root = self.get_mod_root()
         if mods_root is None:
             return
 
+        filtered_paths = []
         for path in paths:
-            if not path.exists():
-                self.log(f"ERROR: File not found: {path}")
-                continue
-
-            if path.is_file() and path.suffix.lower() in ARCHIVE_EXTENSIONS:
-                self.install_from_archive(path, mods_root)
-            elif path.is_dir():
-                self.install_from_directory(path, mods_root)
+            if path.is_dir() or (path.is_file() and path.suffix.lower() in ARCHIVE_EXTENSIONS):
+                filtered_paths.append(path)
             else:
                 self.log(f"ERROR: Unsupported input: {path.name}")
 
-        self.scan()
+        if not filtered_paths:
+            return
 
-    def install_from_archive(self, archive_path: Path, mods_root: Path) -> bool:
-        with tempfile.TemporaryDirectory(prefix="tpf2_mod_install_") as temp_dir:
-            temp_path = Path(temp_dir)
-            extracted, message = extract_archive(archive_path, temp_path)
-            if not extracted:
-                self.log(f"ERROR: {archive_path.name}: {message}")
-                return False
-            return self._install_from_extracted_root(temp_path, archive_path.name, mods_root)
+        self.install_in_progress = True
+        self._update_action_state()
+        self.progress_bar.setRange(0, max(1, len(filtered_paths)))
+        self.progress_bar.setValue(0)
+        self.progress_label.setText("Installiere Mods...")
 
-    def install_from_directory(self, source_dir: Path, mods_root: Path) -> bool:
-        return self._install_from_extracted_root(source_dir, source_dir.name, mods_root)
+        self.install_thread = QThread(self)
+        self.install_worker = InstallWorker(
+            filtered_paths,
+            mods_root,
+            self.i18n.t("no_mod_lua"),
+            bool(self.config.get("parallel_install_enabled", False)),
+            int(self.config.get("max_parallel_workers", 2)),
+        )
+        self.install_worker.moveToThread(self.install_thread)
+        self.install_thread.started.connect(self.install_worker.run)
+        self.install_worker.progress.connect(self.on_install_progress)
+        self.install_worker.log.connect(self.log)
+        self.install_worker.finished.connect(self.on_install_finished)
+        self.install_worker.failed.connect(self.on_install_failed)
+        self.install_worker.finished.connect(self.install_thread.quit)
+        self.install_worker.failed.connect(self.install_thread.quit)
+        self.install_thread.finished.connect(self.install_thread.deleteLater)
+        self.install_thread.start()
 
-    def _install_from_extracted_root(self, root: Path, label: str, mods_root: Path) -> bool:
-        valid_mods = find_valid_mod_roots(root)
-        if not valid_mods:
-            self.log(f"ERROR: {label}: {self.i18n.t('no_mod_lua')}")
-            return False
+    def on_install_progress(self, current: int, total: int, status: str) -> None:
+        self.progress_bar.setRange(0, max(1, total))
+        self.progress_bar.setValue(current)
+        self.progress_label.setText(status or self.i18n.t("install_progress", current=current, total=total))
 
-        all_ok = True
-        for mod_dir in valid_mods:
-            ok, message = install_mod_folder(mod_dir, mods_root)
-            self.log(("OK: " if ok else "ERROR: ") + message)
-            if not ok:
-                all_ok = False
-        return all_ok
+    def on_install_finished(self, any_success: bool) -> None:
+        self.progress_bar.setValue(self.progress_bar.maximum())
+        self.progress_label.setText(self.i18n.t("install_progress_done"))
+        self.install_in_progress = False
+        self._update_action_state()
+        self.install_worker = None
+        self.install_thread = None
+        if any_success:
+            self.scan()
+
+    def on_install_failed(self, error_text: str) -> None:
+        self.log(f"ERROR: Installation aborted: {error_text}")
+        QMessageBox.critical(self, self.i18n.t("error"), error_text)
+        self.install_in_progress = False
+        self._update_action_state()
+        self.install_worker = None
+        self.install_thread = None

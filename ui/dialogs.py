@@ -1,9 +1,10 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFontDatabase, QImage, QPixmap
+from PySide6.QtGui import QDesktopServices, QImage, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -15,10 +16,9 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
-    QPlainTextEdit,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QVBoxLayout,
 )
 
@@ -55,7 +55,7 @@ class SettingsDialog(QDialog):
         self.i18n = i18n
         self.setWindowTitle(self.i18n.t("settings_title"))
         self.setModal(True)
-        self.resize(680, 280)
+        self.resize(720, 360)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 20, 20, 20)
@@ -85,6 +85,15 @@ class SettingsDialog(QDialog):
         self.key_edit = QLineEdit(config.get("deepl_api_key", ""))
         self.key_edit.setEchoMode(QLineEdit.Password)
 
+        self.parallel_install_checkbox = QCheckBox(self.i18n.t("parallel_install_hint"))
+        self.parallel_install_checkbox.setChecked(bool(config.get("parallel_install_enabled", False)))
+
+        self.max_workers_spin = QSpinBox()
+        self.max_workers_spin.setRange(1, 16)
+        self.max_workers_spin.setValue(int(config.get("max_parallel_workers", 2)))
+        self.max_workers_spin.setEnabled(self.parallel_install_checkbox.isChecked())
+        self.parallel_install_checkbox.toggled.connect(self.max_workers_spin.setEnabled)
+
         help_button = QPushButton(self.i18n.t("deepl_help"))
         help_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(DEEPL_GUIDE_URL)))
 
@@ -97,6 +106,10 @@ class SettingsDialog(QDialog):
         form.addWidget(QLabel(self.i18n.t("deepl_key")), 2, 0)
         form.addWidget(self.key_edit, 2, 1, 1, 2)
         form.addWidget(help_button, 2, 3)
+        form.addWidget(QLabel(self.i18n.t("parallel_install")), 3, 0)
+        form.addWidget(self.parallel_install_checkbox, 3, 1, 1, 2)
+        form.addWidget(QLabel(self.i18n.t("max_workers")), 4, 0)
+        form.addWidget(self.max_workers_spin, 4, 1)
 
         info = QLabel(self.i18n.t("guide_info"))
         info.setObjectName("MutedLabel")
@@ -123,6 +136,8 @@ class SettingsDialog(QDialog):
             "language": self.mod_lang_combo.currentData(),
             "fallback_language": self.fallback_combo.currentData(),
             "deepl_api_key": self.key_edit.text().strip(),
+            "parallel_install_enabled": self.parallel_install_checkbox.isChecked(),
+            "max_parallel_workers": self.max_workers_spin.value(),
         }
 
 
@@ -188,11 +203,9 @@ class ModDetailsDialog(QDialog):
         self.deepl_key = deepl_key.strip()
 
         mod_path = Path(self.mod.get("path", ""))
-        mod_lua = mod_path / "mod.lua"
         self.setWindowTitle(self.i18n.t("details_title", name=self.mod.get("name", mod_path.name)))
         self.resize(1120, 760)
 
-        self.raw_content = mod_lua.read_text(encoding="utf-8", errors="ignore")
         self._apply_lazy_translation()
         self._build_ui(mod_path)
 
@@ -209,10 +222,8 @@ class ModDetailsDialog(QDialog):
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(14)
 
-        tabs = QTabWidget()
-        root.addWidget(tabs)
-
         details_tab = QFrame()
+        root.addWidget(details_tab)
         details_layout = QVBoxLayout(details_tab)
         details_layout.setContentsMargins(6, 6, 6, 6)
         details_layout.setSpacing(14)
@@ -350,19 +361,6 @@ class ModDetailsDialog(QDialog):
             )
             preview_label.setText("")
         side_col.addWidget(preview_card, 1)
-
-        raw_tab = QFrame()
-        raw_layout = QVBoxLayout(raw_tab)
-        raw_layout.setContentsMargins(6, 6, 6, 6)
-
-        raw_text = QPlainTextEdit()
-        raw_text.setReadOnly(True)
-        raw_text.setPlainText(self.raw_content)
-        raw_text.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
-        raw_layout.addWidget(raw_text)
-
-        tabs.addTab(details_tab, self.i18n.t("details_tab"))
-        tabs.addTab(raw_tab, self.i18n.t("lua_tab"))
 
     def _info_label(self, text: str) -> QLabel:
         label = QLabel(text)

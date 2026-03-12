@@ -11,6 +11,9 @@ QWidget {
 QMainWindow, QDialog {
     background: #0b0f14;
 }
+QLabel, QCheckBox, QRadioButton {
+    background: transparent;
+}
 QFrame#SidebarCard, QFrame#PanelCard, QFrame#DropZone, QFrame#DetailCard {
     background: #141a22;
     border: 1px solid #232c38;

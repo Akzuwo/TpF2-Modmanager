@@ -119,10 +119,25 @@ def split_top_level_lua_entries(table_text: str) -> list[str]:
     current = []
     depth = 0
     in_string = False
+    in_long_string = False
     string_char = ""
     escaped = False
 
-    for char in text:
+    i = 0
+    while i < len(text):
+        char = text[i]
+        next_char = text[i + 1] if i + 1 < len(text) else ""
+
+        if in_long_string:
+            current.append(char)
+            if char == "]" and next_char == "]":
+                current.append(next_char)
+                in_long_string = False
+                i += 2
+                continue
+            i += 1
+            continue
+
         if in_string:
             current.append(char)
             if escaped:
@@ -131,22 +146,33 @@ def split_top_level_lua_entries(table_text: str) -> list[str]:
                 escaped = True
             elif char == string_char:
                 in_string = False
+            i += 1
+            continue
+
+        if char == "[" and next_char == "[":
+            in_long_string = True
+            current.append(char)
+            current.append(next_char)
+            i += 2
             continue
 
         if char in ('"', "'"):
             in_string = True
             string_char = char
             current.append(char)
+            i += 1
             continue
 
         if char == "{":
             depth += 1
             current.append(char)
+            i += 1
             continue
 
         if char == "}":
             depth = max(0, depth - 1)
             current.append(char)
+            i += 1
             continue
 
         if char == "," and depth == 0:
@@ -154,9 +180,11 @@ def split_top_level_lua_entries(table_text: str) -> list[str]:
             if part:
                 entries.append(part)
             current = []
+            i += 1
             continue
 
         current.append(char)
+        i += 1
 
     last = "".join(current).strip()
     if last:
@@ -210,13 +238,28 @@ def split_lua_statements(text: str) -> list[str]:
     current: list[str] = []
 
     in_string = False
+    in_long_string = False
     string_char = ""
     escaped = False
     paren_depth = 0
     brace_depth = 0
     bracket_depth = 0
 
-    for char in text:
+    i = 0
+    while i < len(text):
+        char = text[i]
+        next_char = text[i + 1] if i + 1 < len(text) else ""
+
+        if in_long_string:
+            current.append(char)
+            if char == "]" and next_char == "]":
+                current.append(next_char)
+                in_long_string = False
+                i += 2
+                continue
+            i += 1
+            continue
+
         if in_string:
             current.append(char)
             if escaped:
@@ -225,12 +268,21 @@ def split_lua_statements(text: str) -> list[str]:
                 escaped = True
             elif char == string_char:
                 in_string = False
+            i += 1
+            continue
+
+        if char == "[" and next_char == "[":
+            in_long_string = True
+            current.append(char)
+            current.append(next_char)
+            i += 2
             continue
 
         if char in ('"', "'"):
             in_string = True
             string_char = char
             current.append(char)
+            i += 1
             continue
 
         if char == "(":
@@ -251,9 +303,11 @@ def split_lua_statements(text: str) -> list[str]:
             if statement:
                 statements.append(statement)
             current = []
+            i += 1
             continue
 
         current.append(char)
+        i += 1
 
     tail = "".join(current).strip()
     if tail:

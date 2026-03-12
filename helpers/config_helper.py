@@ -7,6 +7,8 @@ DEFAULT_CONFIG = {
     "fallback_language": "en",
     "app_language": "de",
     "deepl_api_key": "",
+    "parallel_install_enabled": False,
+    "max_parallel_workers": 2,
 }
 
 
