@@ -1,5 +1,4 @@
 import os
-import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -32,9 +31,13 @@ from PySide6.QtWidgets import (
 from helpers.archive_helper import ARCHIVE_EXTENSIONS
 from helpers.config_helper import load_config, save_config
 from helpers.i18n import APP_LANGS, I18N
-from helpers.mods_helper import SUPPORTED_MOD_LANGS
-from ui.dialogs import ModDetailsPage, SettingsDialog
-from ui.workers import InstallWorker, ScanWorker
+from helpers.mods_helper import (
+    SUPPORTED_MOD_LANGS,
+    delete_mod_folder,
+    delete_or_unsubscribe_workshop_mod,
+)
+from ui.dialogs import DuplicateResolutionDialog, ModDetailsPage, SettingsDialog
+from ui.workers import DuplicateScanWorker, InstallWorker, ScanWorker
 
 
 class DropZone(QFrame):
@@ -113,6 +116,9 @@ class ModManagerMainWindow(QMainWindow):
         self.scan_thread: QThread | None = None
         self.scan_worker: ScanWorker | None = None
         self.scan_in_progress = False
+        self.duplicate_thread: QThread | None = None
+        self.duplicate_worker: DuplicateScanWorker | None = None
+        self.duplicate_scan_in_progress = False
         self.install_thread: QThread | None = None
         self.install_worker: InstallWorker | None = None
         self.install_in_progress = False
@@ -206,18 +212,22 @@ class ModManagerMainWindow(QMainWindow):
         self.scan_button.clicked.connect(self.scan)
         top_layout.addWidget(self.scan_button, 0, 4)
 
+        self.find_duplicates_button = QPushButton()
+        self.find_duplicates_button.clicked.connect(self.find_duplicates)
+        top_layout.addWidget(self.find_duplicates_button, 0, 5)
+
         self.search_edit = QLineEdit()
         self.search_edit.textChanged.connect(self.refresh_table)
-        top_layout.addWidget(self.search_edit, 1, 0, 1, 4)
+        top_layout.addWidget(self.search_edit, 1, 0, 1, 5)
 
         self.clear_button = QPushButton()
         self.clear_button.clicked.connect(self.clear_search)
-        top_layout.addWidget(self.clear_button, 1, 4)
+        top_layout.addWidget(self.clear_button, 1, 5)
 
         self.install_button = QPushButton()
         self.install_button.setProperty("accent", True)
         self.install_button.clicked.connect(self.install_archives_from_dialog)
-        top_layout.addWidget(self.install_button, 2, 4)
+        top_layout.addWidget(self.install_button, 2, 5)
 
         content.addWidget(top_card)
 
@@ -322,6 +332,7 @@ class ModManagerMainWindow(QMainWindow):
         self.mods_dir_label.setText(self.i18n.t("mods_dir"))
         self.browse_button.setText(self.i18n.t("browse"))
         self.scan_button.setText(self.i18n.t("scan"))
+        self.find_duplicates_button.setText(self.i18n.t("find_duplicates"))
         self.search_edit.setPlaceholderText(self.i18n.t("search"))
         self.clear_button.setText(self.i18n.t("clear"))
         self.install_button.setText(self.i18n.t("install_archives"))
@@ -367,6 +378,9 @@ class ModManagerMainWindow(QMainWindow):
         self.config["fallback_language"] = self.config.get("fallback_language", "en")
         self.config["app_language"] = self.config.get("app_language", "de")
         self.config["deepl_api_key"] = self.config.get("deepl_api_key", "")
+        self.config["appworkshop_path"] = self.config.get("appworkshop_path", "")
+        self.config["workshop_mods_path"] = self.config.get("workshop_mods_path", "")
+        self.config["duplicate_behavior"] = self.config.get("duplicate_behavior", "manual")
         self.config["parallel_install_enabled"] = bool(self.config.get("parallel_install_enabled", False))
         self.config["max_parallel_workers"] = int(self.config.get("max_parallel_workers", 2))
         save_config(self.config_path, self.config)
@@ -396,12 +410,18 @@ class ModManagerMainWindow(QMainWindow):
         return root
 
     def _update_action_state(self) -> None:
-        busy = self.scan_in_progress or self.install_in_progress
-        for widget in [self.scan_button, self.settings_button, self.browse_button, self.install_button]:
+        busy = self.scan_in_progress or self.duplicate_scan_in_progress or self.install_in_progress
+        for widget in [
+            self.scan_button,
+            self.find_duplicates_button,
+            self.settings_button,
+            self.browse_button,
+            self.install_button,
+        ]:
             widget.setEnabled(not busy)
 
     def scan(self) -> None:
-        if self.scan_in_progress or self.install_in_progress:
+        if self.scan_in_progress or self.duplicate_scan_in_progress or self.install_in_progress:
             return
 
         root = self.get_mod_root()
@@ -419,6 +439,7 @@ class ModManagerMainWindow(QMainWindow):
         self.scan_worker.moveToThread(self.scan_thread)
         self.scan_thread.started.connect(self.scan_worker.run)
         self.scan_worker.progress.connect(self.on_scan_progress)
+        self.scan_worker.log.connect(self.log)
         self.scan_worker.finished.connect(self.on_scan_finished)
         self.scan_worker.failed.connect(self.on_scan_failed)
         self.scan_worker.finished.connect(self.scan_thread.quit)
@@ -449,6 +470,145 @@ class ModManagerMainWindow(QMainWindow):
         self._update_action_state()
         self.scan_worker = None
         self.scan_thread = None
+
+    def find_duplicates(self) -> None:
+        if self.scan_in_progress or self.duplicate_scan_in_progress or self.install_in_progress:
+            return
+
+        local_root = self.get_mod_root()
+        if local_root is None:
+            return
+
+        workshop_path_text = self.config.get("workshop_mods_path", "").strip()
+        if not workshop_path_text:
+            QMessageBox.warning(self, self.i18n.t("warning"), self.i18n.t("missing_workshop_mods_path"))
+            return
+
+        workshop_root = Path(workshop_path_text)
+        if not workshop_root.exists() or not workshop_root.is_dir():
+            QMessageBox.critical(self, self.i18n.t("error"), self.i18n.t("invalid_workshop_mods_path"))
+            return
+
+        appworkshop_text = self.config.get("appworkshop_path", "").strip()
+        appworkshop_path = Path(appworkshop_text) if appworkshop_text else None
+        if appworkshop_path is not None and (not appworkshop_path.exists() or not appworkshop_path.is_file()):
+            QMessageBox.critical(self, self.i18n.t("error"), self.i18n.t("invalid_appworkshop_path"))
+            return
+
+        self.progress_bar.setRange(0, 1)
+        self.progress_bar.setValue(0)
+        self.progress_label.setText(self.i18n.t("duplicate_scan_prepare"))
+        self.duplicate_scan_in_progress = True
+        self._update_action_state()
+
+        self.duplicate_thread = QThread(self)
+        self.duplicate_worker = DuplicateScanWorker(
+            local_root,
+            workshop_root,
+            appworkshop_path,
+            self.config.get("language", "de"),
+            self.config.get("fallback_language", "en"),
+        )
+        self.duplicate_worker.moveToThread(self.duplicate_thread)
+        self.duplicate_thread.started.connect(self.duplicate_worker.run)
+        self.duplicate_worker.progress.connect(self.on_duplicate_progress)
+        self.duplicate_worker.log.connect(self.log)
+        self.duplicate_worker.finished.connect(self.on_duplicate_finished)
+        self.duplicate_worker.failed.connect(self.on_duplicate_failed)
+        self.duplicate_worker.finished.connect(self.duplicate_thread.quit)
+        self.duplicate_worker.failed.connect(self.duplicate_thread.quit)
+        self.duplicate_thread.finished.connect(self.duplicate_thread.deleteLater)
+        self.duplicate_thread.start()
+
+    def on_duplicate_progress(self, current: int, total: int, status: str) -> None:
+        self.progress_bar.setRange(0, max(1, total))
+        self.progress_bar.setValue(current)
+        self.progress_label.setText(status or self.i18n.t("duplicate_scan_prepare"))
+
+    def on_duplicate_finished(self, matches: list) -> None:
+        self.progress_bar.setValue(self.progress_bar.maximum())
+        self.progress_label.setText(self.i18n.t("duplicate_scan_done"))
+        self.log(self.i18n.t("duplicate_found_count", count=len(matches)))
+        self._cleanup_duplicate_scan()
+        self._handle_duplicate_matches(matches)
+
+    def on_duplicate_failed(self, error_text: str) -> None:
+        self.log(f"ERROR: Duplicate scan aborted: {error_text}")
+        QMessageBox.critical(self, self.i18n.t("error"), error_text)
+        self._cleanup_duplicate_scan()
+
+    def _cleanup_duplicate_scan(self) -> None:
+        self.duplicate_scan_in_progress = False
+        self._update_action_state()
+        self.duplicate_worker = None
+        self.duplicate_thread = None
+
+    def _handle_duplicate_matches(self, matches: list[dict]) -> None:
+        if not matches:
+            QMessageBox.information(self, self.i18n.t("find_duplicates"), self.i18n.t("duplicate_none_found"))
+            return
+
+        behavior = self.config.get("duplicate_behavior", "manual")
+        action_count = 0
+        auto_count = 0
+        manual_count = 0
+        appworkshop_path = Path(self.config.get("appworkshop_path", "").strip()) if self.config.get("appworkshop_path", "").strip() else None
+
+        for match in matches:
+            if behavior == "auto_above_85" and float(match.get("score", 0)) > 85:
+                if self._apply_duplicate_action(match, "delete_local", appworkshop_path):
+                    action_count += 1
+                    auto_count += 1
+                continue
+
+            dialog = DuplicateResolutionDialog(self.i18n, match, self)
+            dialog.exec()
+            if dialog.selected_action != "skip":
+                if self._apply_duplicate_action(match, dialog.selected_action, appworkshop_path):
+                    action_count += 1
+                    manual_count += 1
+
+        QMessageBox.information(
+            self,
+            self.i18n.t("find_duplicates"),
+            self.i18n.t(
+                "duplicate_action_summary",
+                found=len(matches),
+                actions=action_count,
+                auto=auto_count,
+                manual=manual_count,
+            ),
+        )
+        if action_count:
+            self.scan()
+
+    def _apply_duplicate_action(self, match: dict, action: str, appworkshop_path: Path | None) -> bool:
+        local_mod = match.get("local_mod", {})
+        workshop_mod = match.get("workshop_mod", {})
+        score = match.get("score", 0)
+        self.log(
+            self.i18n.t(
+                "duplicate_action_log",
+                action=action,
+                local=local_mod.get("name", local_mod.get("id", "-")),
+                workshop=workshop_mod.get("name", workshop_mod.get("id", "-")),
+                score=score,
+            )
+        )
+
+        if action == "delete_local":
+            ok, message = delete_mod_folder(Path(local_mod.get("path", "")))
+        elif action == "delete_workshop":
+            ok, message = delete_or_unsubscribe_workshop_mod(workshop_mod, appworkshop_path)
+        else:
+            return False
+
+        if ok:
+            self.log(message)
+        else:
+            self.log(f"ERROR: {message}")
+            QMessageBox.critical(self, self.i18n.t("error"), message)
+        return ok
 
     def format_dependency_cell(self, mod: dict) -> str:
         links = mod.get("dependency_links", [])
@@ -587,7 +747,10 @@ class ModManagerMainWindow(QMainWindow):
             return
 
         try:
-            shutil.rmtree(mod_path)
+            ok, message = delete_mod_folder(mod_path)
+            if not ok:
+                raise RuntimeError(message)
+            self.log(message)
             self.scan()
         except Exception as exc:
             QMessageBox.critical(self, self.i18n.t("error"), str(exc))
@@ -616,7 +779,7 @@ class ModManagerMainWindow(QMainWindow):
         self.install_inputs([Path(path) for path in selected])
 
     def install_inputs(self, paths: list[Path]) -> None:
-        if not paths or self.scan_in_progress or self.install_in_progress:
+        if not paths or self.scan_in_progress or self.duplicate_scan_in_progress or self.install_in_progress:
             return
 
         mods_root = self.get_mod_root()

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -56,7 +57,7 @@ class SettingsDialog(QDialog):
         self.i18n = i18n
         self.setWindowTitle(self.i18n.t("settings_title"))
         self.setModal(True)
-        self.resize(720, 360)
+        self.resize(860, 520)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 20, 20, 20)
@@ -86,6 +87,13 @@ class SettingsDialog(QDialog):
         self.key_edit = QLineEdit(config.get("deepl_api_key", ""))
         self.key_edit.setEchoMode(QLineEdit.Password)
 
+        self.appworkshop_edit = QLineEdit(config.get("appworkshop_path", ""))
+        self.workshop_mods_edit = QLineEdit(config.get("workshop_mods_path", ""))
+
+        self.duplicate_behavior_combo = QComboBox()
+        self.duplicate_behavior_combo.addItem(self.i18n.t("duplicate_behavior_manual"), "manual")
+        self.duplicate_behavior_combo.addItem(self.i18n.t("duplicate_behavior_auto"), "auto_above_85")
+
         self.parallel_install_checkbox = QCheckBox(self.i18n.t("parallel_install_hint"))
         self.parallel_install_checkbox.setChecked(bool(config.get("parallel_install_enabled", False)))
 
@@ -98,6 +106,12 @@ class SettingsDialog(QDialog):
         help_button = QPushButton(self.i18n.t("deepl_help"))
         help_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(DEEPL_GUIDE_URL)))
 
+        appworkshop_button = QPushButton(self.i18n.t("browse"))
+        appworkshop_button.clicked.connect(self._pick_appworkshop_file)
+
+        workshop_mods_button = QPushButton(self.i18n.t("browse"))
+        workshop_mods_button.clicked.connect(self._pick_workshop_folder)
+
         form.addWidget(QLabel(self.i18n.t("app_lang")), 0, 0)
         form.addWidget(self.app_lang_combo, 0, 1)
         form.addWidget(QLabel(self.i18n.t("mod_lang")), 1, 0)
@@ -107,10 +121,18 @@ class SettingsDialog(QDialog):
         form.addWidget(QLabel(self.i18n.t("deepl_key")), 2, 0)
         form.addWidget(self.key_edit, 2, 1, 1, 2)
         form.addWidget(help_button, 2, 3)
-        form.addWidget(QLabel(self.i18n.t("parallel_install")), 3, 0)
-        form.addWidget(self.parallel_install_checkbox, 3, 1, 1, 2)
-        form.addWidget(QLabel(self.i18n.t("max_workers")), 4, 0)
-        form.addWidget(self.max_workers_spin, 4, 1)
+        form.addWidget(QLabel(self.i18n.t("appworkshop_path")), 3, 0)
+        form.addWidget(self.appworkshop_edit, 3, 1, 1, 2)
+        form.addWidget(appworkshop_button, 3, 3)
+        form.addWidget(QLabel(self.i18n.t("workshop_mods_path")), 4, 0)
+        form.addWidget(self.workshop_mods_edit, 4, 1, 1, 2)
+        form.addWidget(workshop_mods_button, 4, 3)
+        form.addWidget(QLabel(self.i18n.t("duplicate_behavior")), 5, 0)
+        form.addWidget(self.duplicate_behavior_combo, 5, 1, 1, 3)
+        form.addWidget(QLabel(self.i18n.t("parallel_install")), 6, 0)
+        form.addWidget(self.parallel_install_checkbox, 6, 1, 1, 2)
+        form.addWidget(QLabel(self.i18n.t("max_workers")), 7, 0)
+        form.addWidget(self.max_workers_spin, 7, 1)
 
         info = QLabel(self.i18n.t("guide_info"))
         info.setObjectName("MutedLabel")
@@ -120,6 +142,7 @@ class SettingsDialog(QDialog):
         self._set_combo_value(self.app_lang_combo, config.get("app_language", "de"))
         self._set_combo_value(self.mod_lang_combo, config.get("language", "de"))
         self._set_combo_value(self.fallback_combo, config.get("fallback_language", "en"))
+        self._set_combo_value(self.duplicate_behavior_combo, config.get("duplicate_behavior", "manual"))
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -131,15 +154,122 @@ class SettingsDialog(QDialog):
         if index >= 0:
             combo.setCurrentIndex(index)
 
+    def _pick_appworkshop_file(self) -> None:
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            self.i18n.t("appworkshop_path"),
+            self.appworkshop_edit.text().strip(),
+            "Steam appworkshop (*.acf);;All files (*.*)",
+        )
+        if selected:
+            self.appworkshop_edit.setText(selected)
+
+    def _pick_workshop_folder(self) -> None:
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            self.i18n.t("workshop_mods_path"),
+            self.workshop_mods_edit.text().strip(),
+        )
+        if selected:
+            self.workshop_mods_edit.setText(selected)
+
     def values(self) -> dict:
         return {
             "app_language": self.app_lang_combo.currentData(),
             "language": self.mod_lang_combo.currentData(),
             "fallback_language": self.fallback_combo.currentData(),
             "deepl_api_key": self.key_edit.text().strip(),
+            "appworkshop_path": self.appworkshop_edit.text().strip(),
+            "workshop_mods_path": self.workshop_mods_edit.text().strip(),
+            "duplicate_behavior": self.duplicate_behavior_combo.currentData(),
             "parallel_install_enabled": self.parallel_install_checkbox.isChecked(),
             "max_parallel_workers": self.max_workers_spin.value(),
         }
+
+
+class DuplicateResolutionDialog(QDialog):
+    def __init__(self, i18n, match: dict, parent=None) -> None:
+        super().__init__(parent)
+        self.i18n = i18n
+        self.match = match
+        self.selected_action = "skip"
+        self.setWindowTitle(self.i18n.t("duplicate_dialog_title"))
+        self.resize(820, 320)
+
+        local_mod = match.get("local_mod", {})
+        workshop_mod = match.get("workshop_mod", {})
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(12)
+
+        title = QLabel(self.i18n.t("duplicate_dialog_title"))
+        title.setObjectName("SectionTitle")
+        root.addWidget(title)
+
+        summary = QLabel(
+            self.i18n.t(
+                "duplicate_summary",
+                local_name=local_mod.get("name", local_mod.get("id", "-")),
+                workshop_name=workshop_mod.get("name", workshop_mod.get("id", "-")),
+                workshop_id=match.get("workshop_id", "-"),
+                score=match.get("score", 0),
+            )
+        )
+        summary.setWordWrap(True)
+        root.addWidget(summary)
+
+        reason = QLabel(self.i18n.t("duplicate_reason", value=match.get("reason", "")))
+        reason.setWordWrap(True)
+        root.addWidget(reason)
+
+        table = QTableWidget(2, 4)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setHorizontalHeaderLabels(
+            [
+                self.i18n.t("duplicate_source"),
+                self.i18n.t("col_name"),
+                self.i18n.t("col_author"),
+                self.i18n.t("col_path"),
+            ]
+        )
+
+        rows = [
+            (self.i18n.t("duplicate_local_mod"), local_mod),
+            (self.i18n.t("duplicate_workshop_mod"), workshop_mod),
+        ]
+        for row, (source, mod) in enumerate(rows):
+            table.setItem(row, 0, QTableWidgetItem(source))
+            table.setItem(row, 1, QTableWidgetItem(mod.get("name", "")))
+            table.setItem(row, 2, QTableWidgetItem(mod.get("author", "")))
+            path_text = mod.get("path", "")
+            if row == 1 and match.get("workshop_id"):
+                path_text = f"{path_text} (ID {match['workshop_id']})"
+            table.setItem(row, 3, QTableWidgetItem(path_text))
+        root.addWidget(table)
+
+        actions = QHBoxLayout()
+        actions.addStretch(1)
+
+        delete_local_button = QPushButton(self.i18n.t("duplicate_delete_local"))
+        delete_local_button.setProperty("accent", True)
+        delete_local_button.clicked.connect(lambda: self._finish("delete_local"))
+        actions.addWidget(delete_local_button)
+
+        delete_workshop_button = QPushButton(self.i18n.t("duplicate_delete_workshop"))
+        delete_workshop_button.clicked.connect(lambda: self._finish("delete_workshop"))
+        actions.addWidget(delete_workshop_button)
+
+        skip_button = QPushButton(self.i18n.t("duplicate_skip"))
+        skip_button.clicked.connect(lambda: self._finish("skip"))
+        actions.addWidget(skip_button)
+        root.addLayout(actions)
+
+    def _finish(self, action: str) -> None:
+        self.selected_action = action
+        self.accept()
 
 
 class DependencyPickerDialog(QDialog):

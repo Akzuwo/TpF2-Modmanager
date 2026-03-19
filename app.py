@@ -1,3 +1,4 @@
+import logging
 import sys
 from pathlib import Path
 
@@ -22,6 +23,11 @@ def main() -> int:
 
     from ui.main_window import ModManagerMainWindow
     from ui.theme import APP_STYLE_SHEET, configure_application
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
 
     app = QApplication(sys.argv)
     app.setStyleSheet(APP_STYLE_SHEET)

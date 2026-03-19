@@ -1,8 +1,12 @@
-﻿import copy
+import copy
+import hashlib
+import json
+import logging
 import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from helpers.deepl_helper import DeepLClient
@@ -17,6 +21,7 @@ LANG_ALIASES = {
 
 _MOD_PARSE_CACHE: dict[tuple[str, int, int, str, str], dict] = {}
 _MOD_PARSE_CACHE_LOCK = threading.Lock()
+logger = logging.getLogger(__name__)
 
 
 def _build_mod_cache_key(file_path: Path, primary_lang: str, fallback_lang: str) -> tuple[str, int, int, str, str] | None:
@@ -591,11 +596,10 @@ def parse_strings_lua(file_path: Path) -> tuple[dict[str, dict[str, str]], dict[
 
 
 def parse_strings_json(file_path: Path) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
-    import json
-
     try:
         payload = json.loads(read_text_with_fallback(file_path))
     except Exception:
+        logger.warning("Could not parse JSON strings file: %s", file_path, exc_info=True)
         return {}, {}
 
     if not isinstance(payload, dict):
@@ -675,11 +679,13 @@ def load_mod_translations(mod_dir: Path, primary_lang: str, fallback_lang: str) 
 
     strings_lua = mod_dir / "strings.lua"
     if strings_lua.exists():
+        logger.debug("Loading mod-local strings.lua for %s", mod_dir.name)
         lang_tables, top_level = parse_strings_lua(strings_lua)
         merge_translation_payload(all_lang_tables, all_top_level, lang_tables, top_level)
 
     strings_json = mod_dir / "strings.json"
     if strings_json.exists():
+        logger.debug("Loading mod-local strings.json for %s", mod_dir.name)
         lang_tables, top_level = parse_strings_json(strings_json)
         merge_translation_payload(all_lang_tables, all_top_level, lang_tables, top_level)
 
@@ -698,15 +704,43 @@ def load_mod_translations(mod_dir: Path, primary_lang: str, fallback_lang: str) 
             lang_tables, top_level = parse_strings_lua(candidate)
             merge_translation_payload(all_lang_tables, all_top_level, lang_tables, top_level)
 
-    return build_translation_map(all_lang_tables, all_top_level, primary_lang, fallback_lang)
+    payload = build_translation_map(all_lang_tables, all_top_level, primary_lang, fallback_lang)
+    payload["namespace"] = mod_dir.name
+    payload["top_level"] = dict(all_top_level)
+    payload["language_tables"] = copy.deepcopy(all_lang_tables)
+    return payload
 
 
-def resolve_localized_value(value: str, translations: dict[str, str]) -> str:
-    candidate = value.strip()
-    for key in [candidate, candidate.strip("\"'"), candidate.lstrip("$"), candidate.strip("\"'").lstrip("$")]:
+def resolve_localized_value(value: str, translation_payload: dict | None, field_name: str = "") -> str:
+    if value is None:
+        return ""
+
+    candidate = str(value).strip()
+    if not candidate:
+        return ""
+
+    translations = (translation_payload or {}).get("map", {}) or {}
+    namespace = (translation_payload or {}).get("namespace", "") or "unknown"
+    candidates = [
+        candidate,
+        candidate.strip("\"'"),
+        candidate.lstrip("$"),
+        candidate.strip("\"'").lstrip("$"),
+    ]
+    for key in candidates:
         if key in translations:
-            return translations[key]
-    return value
+            resolved = translations[key]
+            logger.debug("Resolved string key '%s' in namespace '%s' for field '%s'", key, namespace, field_name or "?")
+            return resolved
+
+    if candidate.startswith("_(") and candidate.endswith(")"):
+        logger.warning("Unresolved localized expression '%s' in namespace '%s'", candidate, namespace)
+        return candidate[2:-1].strip().strip("\"'")
+
+    if candidate in {"name", "mod_name", "description", "desc"}:
+        logger.debug("String key '%s' missing in namespace '%s'; using raw fallback", candidate, namespace)
+
+    return candidate
 
 
 def parse_dependencies(info_block: str) -> list[str]:
@@ -746,13 +780,14 @@ def parse_mod_lua(file_path: Path, primary_lang: str, fallback_lang: str, deepl_
     cached = _get_mod_cache(cache_key)
     if cached is not None:
         return cached
+    logger.debug("Parsing mod.lua: %s", file_path)
     content = read_text_with_fallback(file_path)
     info_block = extract_info_block(content)
     raw_fields = parse_info_fields(info_block)
 
     trans_info = load_mod_translations(file_path.parent, primary_lang, fallback_lang)
     translations = trans_info["map"]
-    resolved_fields = {k: resolve_localized_value(v, translations) for k, v in raw_fields.items()}
+    resolved_fields = {k: resolve_localized_value(v, trans_info, k) for k, v in raw_fields.items()}
 
     name = resolved_fields.get("name") or raw_fields.get("name") or file_path.parent.name
 
@@ -762,7 +797,7 @@ def parse_mod_lua(file_path: Path, primary_lang: str, fallback_lang: str, deepl_
         author = find_field(authors_table.group(1), "name")
     if not author:
         author = raw_fields.get("author", "")
-    author = resolve_localized_value(author, translations) if author else ""
+    author = resolve_localized_value(author, trans_info, "author") if author else ""
     if not author:
         author = "Unbekannt"
 
@@ -798,6 +833,7 @@ def parse_mod_lua(file_path: Path, primary_lang: str, fallback_lang: str, deepl_
         "raw_fields": raw_fields,
         "resolved_fields": resolved_fields,
         "translations": translations,
+        "translation_namespace": trans_info.get("namespace", file_path.parent.name),
         "translation_available_languages": trans_info["available_languages"],
         "translation_effective_language": trans_info["effective_language"],
         "translation_notice": trans_info["notice"],
@@ -807,6 +843,13 @@ def parse_mod_lua(file_path: Path, primary_lang: str, fallback_lang: str, deepl_
         "dependency_links": [],
         "required_by": [],
     }
+    logger.debug(
+        "Parsed mod '%s' (%s) with translation namespace '%s' and language '%s'",
+        result["name"],
+        result["id"],
+        result["translation_namespace"],
+        result["translation_effective_language"],
+    )
     _set_mod_cache(cache_key, result)
     return copy.deepcopy(result)
 
@@ -831,6 +874,7 @@ def resolve_dependency_graph(mods: list[dict]) -> None:
 
 def _build_mod_fallback(mod_lua: Path, mod_folder: Path | None = None) -> dict:
     folder = mod_folder if mod_folder is not None else mod_lua.parent
+    logger.warning("Using fallback metadata for unreadable mod: %s", folder)
     return {
         "id": folder.name,
         "name": folder.name,
@@ -844,6 +888,7 @@ def _build_mod_fallback(mod_lua: Path, mod_folder: Path | None = None) -> dict:
         "raw_fields": {},
         "resolved_fields": {},
         "translations": {},
+        "translation_namespace": folder.name,
         "translation_available_languages": [],
         "translation_effective_language": "",
         "translation_notice": "",
@@ -879,6 +924,18 @@ def _find_best_mod_lua_per_folder(mod_root: Path) -> tuple[list[Path], dict[str,
     return folders, mapping
 
 
+def _find_best_mod_lua_in_directory(root: Path) -> Path | None:
+    best: tuple[Path, int] | None = None
+    for mod_lua in root.rglob("mod.lua"):
+        try:
+            rank = len(mod_lua.relative_to(root).parts)
+        except ValueError:
+            continue
+        if best is None or rank < best[1]:
+            best = (mod_lua, rank)
+    return best[0] if best else None
+
+
 def scan_mods_parallel(
     mod_root: Path,
     primary_lang: str,
@@ -888,10 +945,12 @@ def scan_mods_parallel(
     progress_callback=None,
 ) -> list[dict]:
     if not mod_root.exists() or not mod_root.is_dir():
+        logger.warning("Scan skipped because mod root is invalid: %s", mod_root)
         return []
 
     folders, mod_lua_by_folder = _find_best_mod_lua_per_folder(mod_root)
     total = len(folders)
+    logger.info("Scanning %s mod folders in %s", total, mod_root)
     if progress_callback:
         progress_callback(0, total)
 
@@ -930,6 +989,7 @@ def scan_mods_parallel(
             try:
                 mods.append(future.result())
             except Exception:
+                logger.exception("Failed to parse mod %s", folder)
                 mods.append(_build_mod_fallback(mod_lua, folder))
 
             processed += 1
@@ -938,6 +998,7 @@ def scan_mods_parallel(
 
     mods.sort(key=lambda item: item.get("name", "").lower())
     resolve_dependency_graph(mods)
+    logger.info("Finished scan for %s: %s mods", mod_root, len(mods))
     return mods
 
 
@@ -972,4 +1033,388 @@ def find_mod_link(fields: dict[str, str]) -> str:
         if match:
             return match.group(0)
     return ""
+
+
+TRACKED_ASSET_SUFFIXES = {
+    ".lua",
+    ".mdl",
+    ".msh",
+    ".mtl",
+    ".con",
+    ".lua5",
+    ".png",
+    ".dds",
+    ".tga",
+}
+
+
+def normalize_compare_text(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+
+
+def tokenize_compare_text(value: str) -> set[str]:
+    return {token for token in normalize_compare_text(value).split() if len(token) >= 3}
+
+
+def safe_relative_paths(mod_path: Path) -> list[str]:
+    paths: list[str] = []
+    if not mod_path.exists():
+        return paths
+    try:
+        for file_path in mod_path.rglob("*"):
+            if not file_path.is_file():
+                continue
+            rel = file_path.relative_to(mod_path).as_posix().lower()
+            paths.append(rel)
+    except Exception:
+        logger.exception("Failed to build relative path list for %s", mod_path)
+    return paths
+
+
+def build_mod_signature(mod: dict) -> dict:
+    cached = mod.get("_signature")
+    if isinstance(cached, dict):
+        return cached
+
+    mod_path = Path(mod.get("path", ""))
+    relative_paths = safe_relative_paths(mod_path)
+    tracked_paths = {path for path in relative_paths if Path(path).suffix.lower() in TRACKED_ASSET_SUFFIXES}
+    tracked_names = {Path(path).name for path in tracked_paths}
+    dir_names = {Path(path).parent.as_posix() for path in relative_paths if "/" in path}
+    folder_name = normalize_compare_text(mod_path.name)
+    mod_name = normalize_compare_text(mod.get("name", ""))
+    author = normalize_compare_text(mod.get("author", ""))
+    structure_seed = "\n".join(sorted(relative_paths))
+    structure_hash = hashlib.sha1(structure_seed.encode("utf-8", errors="ignore")).hexdigest() if structure_seed else ""
+    signature = {
+        "folder_name": folder_name,
+        "name": mod_name,
+        "author": author,
+        "folder_tokens": tokenize_compare_text(mod_path.name),
+        "name_tokens": tokenize_compare_text(mod.get("name", "")),
+        "author_tokens": tokenize_compare_text(mod.get("author", "")),
+        "relative_paths": set(relative_paths),
+        "tracked_paths": tracked_paths,
+        "tracked_names": tracked_names,
+        "dir_names": dir_names,
+        "structure_hash": structure_hash,
+        "file_count": len(relative_paths),
+    }
+    mod["_signature"] = signature
+    logger.debug("Built signature for mod '%s' with %s files", mod.get("name", mod_path.name), len(relative_paths))
+    return signature
+
+
+def similarity_ratio(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    if left == right:
+        return 1.0
+    return SequenceMatcher(None, left, right).ratio()
+
+
+def overlap_ratio(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    intersection = len(left & right)
+    return intersection / max(1, min(len(left), len(right)))
+
+
+def jaccard_ratio(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    union = left | right
+    if not union:
+        return 0.0
+    return len(left & right) / len(union)
+
+
+def parse_workshop_ids_from_acf(acf_path: Path) -> list[str]:
+    if not acf_path.exists():
+        logger.warning("appworkshop file does not exist: %s", acf_path)
+        return []
+    try:
+        text = read_text_with_fallback(acf_path)
+    except Exception:
+        logger.exception("Could not read appworkshop file: %s", acf_path)
+        return []
+
+    ids = sorted(set(re.findall(r'"(\d{6,})"\s*\{', text)))
+    logger.info("Parsed %s workshop ids from %s", len(ids), acf_path)
+    return ids
+
+
+def remove_workshop_item_from_acf(acf_path: Path, workshop_id: str) -> bool:
+    if not acf_path.exists():
+        return False
+
+    try:
+        text = read_text_with_fallback(acf_path)
+    except Exception:
+        logger.exception("Could not read appworkshop file for update: %s", acf_path)
+        return False
+
+    pattern = re.compile(rf'(\s*)"{re.escape(workshop_id)}"\s*\{{', flags=re.M)
+    changed = False
+    while True:
+        match = pattern.search(text)
+        if not match:
+            break
+        block = extract_balanced_block(text, match.end() - 1)
+        start = match.start()
+        end = match.end() - 1 + len(block)
+        text = text[:start] + text[end:]
+        changed = True
+
+    if not changed:
+        return False
+
+    try:
+        acf_path.write_text(text, encoding="utf-8")
+        logger.info("Removed workshop id %s from %s", workshop_id, acf_path)
+        return True
+    except Exception:
+        logger.exception("Could not write updated appworkshop file: %s", acf_path)
+        return False
+
+
+def _collect_workshop_folder_candidates(workshop_root: Path, workshop_ids: list[str]) -> dict[str, Path]:
+    candidates: dict[str, Path] = {}
+    if not workshop_root.exists() or not workshop_root.is_dir():
+        return candidates
+
+    for workshop_id in workshop_ids:
+        direct = workshop_root / workshop_id
+        if direct.is_dir():
+            candidates[workshop_id] = direct
+            continue
+
+        alt = workshop_root / f"content_{workshop_id}"
+        if alt.is_dir():
+            candidates[workshop_id] = alt
+
+    return candidates
+
+
+def scan_workshop_mods(
+    workshop_root: Path,
+    acf_path: Path | None,
+    primary_lang: str,
+    fallback_lang: str,
+    progress_callback=None,
+) -> list[dict]:
+    ids = parse_workshop_ids_from_acf(acf_path) if acf_path else []
+    folders = _collect_workshop_folder_candidates(workshop_root, ids)
+    if not folders and workshop_root.exists():
+        for child in sorted(workshop_root.iterdir(), key=lambda item: item.name.lower()):
+            if child.is_dir() and child.name.isdigit():
+                folders[child.name] = child
+
+    total = len(folders)
+    if progress_callback:
+        progress_callback(0, total)
+    if total == 0:
+        logger.warning("No workshop mods found in %s", workshop_root)
+        return []
+
+    max_workers = max(2, min(16, (os.cpu_count() or 4) * 2))
+    workshop_mods: list[dict] = []
+    processed = 0
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_map = {}
+        for workshop_id, folder in folders.items():
+            mod_lua = _find_best_mod_lua_in_directory(folder) or (folder / "mod.lua")
+            future = executor.submit(parse_mod_lua, mod_lua, primary_lang, fallback_lang, None)
+            future_map[future] = (workshop_id, folder, mod_lua)
+
+        for future in as_completed(future_map):
+            workshop_id, folder, mod_lua = future_map[future]
+            try:
+                mod = future.result()
+            except Exception:
+                logger.exception("Failed to parse workshop mod %s", workshop_id)
+                mod = _build_mod_fallback(mod_lua, folder)
+            mod["workshop_id"] = workshop_id
+            mod["source"] = "workshop"
+            workshop_mods.append(mod)
+            processed += 1
+            if progress_callback:
+                progress_callback(processed, total)
+
+    logger.info("Scanned %s workshop mods in %s", len(workshop_mods), workshop_root)
+    return workshop_mods
+
+
+def build_duplicate_candidates(local_mods: list[dict], workshop_mods: list[dict]) -> dict[str, list[dict]]:
+    all_small = len(local_mods) * len(workshop_mods) <= 4000
+    workshop_signatures = {mod["path"]: build_mod_signature(mod) for mod in workshop_mods}
+    index_by_token: dict[str, list[dict]] = {}
+    for mod in workshop_mods:
+        sig = workshop_signatures[mod["path"]]
+        tokens = sig["folder_tokens"] | sig["name_tokens"] | sig["author_tokens"] | sig["tracked_names"]
+        for token in tokens:
+            index_by_token.setdefault(token, []).append(mod)
+
+    candidates: dict[str, list[dict]] = {}
+    for mod in local_mods:
+        if all_small:
+            candidates[mod["path"]] = list(workshop_mods)
+            continue
+        sig = build_mod_signature(mod)
+        tokens = sig["folder_tokens"] | sig["name_tokens"] | sig["author_tokens"] | sig["tracked_names"]
+        bucket: dict[str, dict] = {}
+        for token in tokens:
+            for workshop_mod in index_by_token.get(token, []):
+                bucket[workshop_mod["path"]] = workshop_mod
+        if not bucket:
+            candidates[mod["path"]] = list(workshop_mods)
+        else:
+            candidates[mod["path"]] = list(bucket.values())
+    return candidates
+
+
+def score_mod_match(local_mod: dict, workshop_mod: dict) -> dict:
+    local_sig = build_mod_signature(local_mod)
+    workshop_sig = build_mod_signature(workshop_mod)
+
+    folder_score = similarity_ratio(local_sig["folder_name"], workshop_sig["folder_name"])
+    name_score = similarity_ratio(local_sig["name"], workshop_sig["name"])
+    author_score = similarity_ratio(local_sig["author"], workshop_sig["author"])
+    path_overlap = overlap_ratio(local_sig["tracked_paths"], workshop_sig["tracked_paths"])
+    asset_overlap = overlap_ratio(local_sig["tracked_names"], workshop_sig["tracked_names"])
+    structure_overlap = max(
+        jaccard_ratio(local_sig["dir_names"], workshop_sig["dir_names"]),
+        1.0 if local_sig["structure_hash"] and local_sig["structure_hash"] == workshop_sig["structure_hash"] else 0.0,
+    )
+
+    score = (
+        folder_score * 12
+        + name_score * 22
+        + author_score * 8
+        + structure_overlap * 18
+        + path_overlap * 28
+        + asset_overlap * 12
+    )
+
+    reasons: list[str] = []
+    if path_overlap >= 0.6:
+        reasons.append(f"{int(path_overlap * 100)}% gleiche Asset-/Dateipfade")
+    if asset_overlap >= 0.6:
+        reasons.append(f"{int(asset_overlap * 100)}% gleiche markante Dateien")
+    if name_score >= 0.8:
+        reasons.append("Modname sehr aehnlich")
+    if folder_score >= 0.8:
+        reasons.append("Ordnername sehr aehnlich")
+    if author_score >= 0.8 and local_sig["author"]:
+        reasons.append("Autor stimmt weitgehend ueberein")
+    if structure_overlap >= 0.7:
+        reasons.append("Dateistruktur stark aehnlich")
+
+    result = {
+        "local_mod": local_mod,
+        "workshop_mod": workshop_mod,
+        "workshop_id": workshop_mod.get("workshop_id", ""),
+        "score": round(score, 1),
+        "reason": "; ".join(reasons[:3]) or "Mehrere Metadaten- und Dateimerkmale stimmen ueberein",
+        "metrics": {
+            "folder_score": folder_score,
+            "name_score": name_score,
+            "author_score": author_score,
+            "path_overlap": path_overlap,
+            "asset_overlap": asset_overlap,
+            "structure_overlap": structure_overlap,
+        },
+    }
+    logger.debug(
+        "Duplicate score %s%%: local='%s' workshop='%s' (%s)",
+        result["score"],
+        local_mod.get("name", local_mod.get("id", "?")),
+        workshop_mod.get("name", workshop_mod.get("id", "?")),
+        result["workshop_id"],
+    )
+    return result
+
+
+def find_duplicate_mods(
+    local_mods: list[dict],
+    workshop_mods: list[dict],
+    min_score: float = 45.0,
+    progress_callback=None,
+) -> list[dict]:
+    if not local_mods or not workshop_mods:
+        return []
+
+    candidates = build_duplicate_candidates(local_mods, workshop_mods)
+    jobs: list[tuple[dict, dict]] = []
+    for local_mod in local_mods:
+        for workshop_mod in candidates.get(local_mod["path"], []):
+            if Path(local_mod.get("path", "")).resolve() == Path(workshop_mod.get("path", "")).resolve():
+                continue
+            jobs.append((local_mod, workshop_mod))
+
+    total = len(jobs)
+    if progress_callback:
+        progress_callback(0, total)
+    if total == 0:
+        return []
+
+    results_by_local: dict[str, dict] = {}
+    processed = 0
+    max_workers = max(2, min(24, (os.cpu_count() or 4) * 2))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_map = {executor.submit(score_mod_match, local_mod, workshop_mod): (local_mod, workshop_mod) for local_mod, workshop_mod in jobs}
+        for future in as_completed(future_map):
+            processed += 1
+            if progress_callback:
+                progress_callback(processed, total)
+            try:
+                result = future.result()
+            except Exception:
+                logger.exception("Failed to score duplicate candidate")
+                continue
+
+            if result["score"] < min_score:
+                continue
+
+            local_key = result["local_mod"].get("path", "")
+            previous = results_by_local.get(local_key)
+            if previous is None or result["score"] > previous["score"]:
+                results_by_local[local_key] = result
+
+    results = sorted(results_by_local.values(), key=lambda item: item["score"], reverse=True)
+    logger.info("Found %s duplicate candidates >= %s%%", len(results), min_score)
+    return results
+
+
+def delete_mod_folder(mod_path: Path) -> tuple[bool, str]:
+    if not mod_path.exists():
+        return False, f"Pfad nicht gefunden: {mod_path}"
+    try:
+        import shutil
+
+        shutil.rmtree(mod_path)
+        logger.info("Deleted mod folder: %s", mod_path)
+        return True, f"Ordner geloescht: {mod_path.name}"
+    except Exception as exc:
+        logger.exception("Could not delete mod folder: %s", mod_path)
+        return False, str(exc)
+
+
+def delete_or_unsubscribe_workshop_mod(workshop_mod: dict, acf_path: Path | None = None) -> tuple[bool, str]:
+    mod_path = Path(workshop_mod.get("path", ""))
+    workshop_id = str(workshop_mod.get("workshop_id", "") or "")
+    ok, message = delete_mod_folder(mod_path)
+    if not ok:
+        return ok, message
+
+    acf_updated = False
+    if acf_path and workshop_id:
+        acf_updated = remove_workshop_item_from_acf(acf_path, workshop_id)
+
+    if workshop_id and acf_updated:
+        return True, f"Workshop-Mod entfernt und appworkshop fuer {workshop_id} aktualisiert"
+    if workshop_id:
+        return True, f"Workshop-Mod entfernt: {workshop_id}"
+    return True, message
 

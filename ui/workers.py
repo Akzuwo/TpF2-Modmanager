@@ -6,11 +6,12 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot
 
 from helpers.archive_helper import ARCHIVE_EXTENSIONS, extract_archive, find_valid_mod_roots, install_mod_folder
-from helpers.mods_helper import scan_mods_parallel
+from helpers.mods_helper import find_duplicate_mods, scan_mods_parallel, scan_workshop_mods
 
 
 class ScanWorker(QObject):
     progress = Signal(int, int)
+    log = Signal(str)
     finished = Signal(list)
     failed = Signal(str)
 
@@ -25,6 +26,7 @@ class ScanWorker(QObject):
         try:
             cpu = os.cpu_count() or 4
             max_workers = max(4, min(20, cpu * 2))
+            self.log.emit(f"Scan gestartet: {self.mod_root}")
 
             def on_progress(done: int, total: int) -> None:
                 self.progress.emit(done, total)
@@ -37,7 +39,77 @@ class ScanWorker(QObject):
                 max_workers=max_workers,
                 progress_callback=on_progress,
             )
+            self.log.emit(f"Scan abgeschlossen: {len(mods)} Mods")
             self.finished.emit(mods)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class DuplicateScanWorker(QObject):
+    progress = Signal(int, int, str)
+    log = Signal(str)
+    finished = Signal(list)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        local_mod_root: Path,
+        workshop_mod_root: Path,
+        appworkshop_path: Path | None,
+        primary_lang: str,
+        fallback_lang: str,
+    ) -> None:
+        super().__init__()
+        self.local_mod_root = local_mod_root
+        self.workshop_mod_root = workshop_mod_root
+        self.appworkshop_path = appworkshop_path
+        self.primary_lang = primary_lang
+        self.fallback_lang = fallback_lang
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            cpu = os.cpu_count() or 4
+            max_workers = max(4, min(20, cpu * 2))
+            self.log.emit(f"Duplikat-Scan gestartet: lokal={self.local_mod_root} workshop={self.workshop_mod_root}")
+
+            self.progress.emit(0, 1, "Scanne lokale Mods...")
+            local_mods = scan_mods_parallel(
+                self.local_mod_root,
+                self.primary_lang,
+                self.fallback_lang,
+                deepl_client=None,
+                max_workers=max_workers,
+                progress_callback=lambda done, total: self.progress.emit(done, max(1, total), "Scanne lokale Mods..."),
+            )
+            self.log.emit(f"Lokale Mods gelesen: {len(local_mods)}")
+
+            self.progress.emit(0, 1, "Scanne Workshop-Mods...")
+            workshop_mods = scan_workshop_mods(
+                self.workshop_mod_root,
+                self.appworkshop_path,
+                self.primary_lang,
+                self.fallback_lang,
+                progress_callback=lambda done, total: self.progress.emit(
+                    done,
+                    max(1, total),
+                    "Scanne Workshop-Mods...",
+                ),
+            )
+            self.log.emit(f"Workshop-Mods gelesen: {len(workshop_mods)}")
+
+            self.progress.emit(0, 1, "Vergleiche Mods...")
+            matches = find_duplicate_mods(
+                local_mods,
+                workshop_mods,
+                progress_callback=lambda done, total: self.progress.emit(
+                    done,
+                    max(1, total),
+                    "Vergleiche lokale Mods mit Workshop-Mods...",
+                ),
+            )
+            self.log.emit(f"Duplikat-Scan abgeschlossen: {len(matches)} Treffer")
+            self.finished.emit(matches)
         except Exception as exc:
             self.failed.emit(str(exc))
 
