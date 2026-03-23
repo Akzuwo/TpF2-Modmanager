@@ -84,6 +84,9 @@ class SettingsDialog(QDialog):
         for code in mod_langs:
             self.fallback_combo.addItem(LANG_LABELS[code], code)
 
+        self.debug_logging_checkbox = QCheckBox(self.i18n.t("debug_logging_hint"))
+        self.debug_logging_checkbox.setChecked(bool(config.get("debug_logging_enabled", False)))
+
         self.key_edit = QLineEdit(config.get("deepl_api_key", ""))
         self.key_edit.setEchoMode(QLineEdit.Password)
 
@@ -118,21 +121,23 @@ class SettingsDialog(QDialog):
         form.addWidget(self.mod_lang_combo, 1, 1)
         form.addWidget(QLabel(self.i18n.t("fallback")), 1, 2)
         form.addWidget(self.fallback_combo, 1, 3)
-        form.addWidget(QLabel(self.i18n.t("deepl_key")), 2, 0)
-        form.addWidget(self.key_edit, 2, 1, 1, 2)
-        form.addWidget(help_button, 2, 3)
-        form.addWidget(QLabel(self.i18n.t("appworkshop_path")), 3, 0)
-        form.addWidget(self.appworkshop_edit, 3, 1, 1, 2)
-        form.addWidget(appworkshop_button, 3, 3)
-        form.addWidget(QLabel(self.i18n.t("workshop_mods_path")), 4, 0)
-        form.addWidget(self.workshop_mods_edit, 4, 1, 1, 2)
-        form.addWidget(workshop_mods_button, 4, 3)
-        form.addWidget(QLabel(self.i18n.t("duplicate_behavior")), 5, 0)
-        form.addWidget(self.duplicate_behavior_combo, 5, 1, 1, 3)
-        form.addWidget(QLabel(self.i18n.t("parallel_install")), 6, 0)
-        form.addWidget(self.parallel_install_checkbox, 6, 1, 1, 2)
-        form.addWidget(QLabel(self.i18n.t("max_workers")), 7, 0)
-        form.addWidget(self.max_workers_spin, 7, 1)
+        form.addWidget(QLabel(self.i18n.t("debug_logging")), 2, 0)
+        form.addWidget(self.debug_logging_checkbox, 2, 1, 1, 3)
+        form.addWidget(QLabel(self.i18n.t("deepl_key")), 3, 0)
+        form.addWidget(self.key_edit, 3, 1, 1, 2)
+        form.addWidget(help_button, 3, 3)
+        form.addWidget(QLabel(self.i18n.t("appworkshop_path")), 4, 0)
+        form.addWidget(self.appworkshop_edit, 4, 1, 1, 2)
+        form.addWidget(appworkshop_button, 4, 3)
+        form.addWidget(QLabel(self.i18n.t("workshop_mods_path")), 5, 0)
+        form.addWidget(self.workshop_mods_edit, 5, 1, 1, 2)
+        form.addWidget(workshop_mods_button, 5, 3)
+        form.addWidget(QLabel(self.i18n.t("duplicate_behavior")), 6, 0)
+        form.addWidget(self.duplicate_behavior_combo, 6, 1, 1, 3)
+        form.addWidget(QLabel(self.i18n.t("parallel_install")), 7, 0)
+        form.addWidget(self.parallel_install_checkbox, 7, 1, 1, 2)
+        form.addWidget(QLabel(self.i18n.t("max_workers")), 8, 0)
+        form.addWidget(self.max_workers_spin, 8, 1)
 
         info = QLabel(self.i18n.t("guide_info"))
         info.setObjectName("MutedLabel")
@@ -178,6 +183,7 @@ class SettingsDialog(QDialog):
             "app_language": self.app_lang_combo.currentData(),
             "language": self.mod_lang_combo.currentData(),
             "fallback_language": self.fallback_combo.currentData(),
+            "debug_logging_enabled": self.debug_logging_checkbox.isChecked(),
             "deepl_api_key": self.key_edit.text().strip(),
             "appworkshop_path": self.appworkshop_edit.text().strip(),
             "workshop_mods_path": self.workshop_mods_edit.text().strip(),

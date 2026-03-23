@@ -21,19 +21,20 @@ def main() -> int:
         print("PySide6 is required. Install it with: pip install PySide6")
         raise SystemExit(1) from exc
 
+    from helpers.config_helper import load_config
+    from helpers.logging_helper import configure_logging
     from ui.main_window import ModManagerMainWindow
     from ui.theme import APP_STYLE_SHEET, configure_application
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+    resource_dir, data_dir = get_runtime_paths()
+    config = load_config(data_dir / "config.json")
+    configure_logging(data_dir, bool(config.get("debug_logging_enabled", False)))
+    logging.getLogger(__name__).info("Application startup. resource_dir=%s data_dir=%s", resource_dir, data_dir)
 
     app = QApplication(sys.argv)
     app.setStyleSheet(APP_STYLE_SHEET)
     configure_application(app)
 
-    resource_dir, data_dir = get_runtime_paths()
     app_icon = resource_dir / "media" / "icon.ico"
     if app_icon.exists():
         app.setWindowIcon(QIcon(str(app_icon)))

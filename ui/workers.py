@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -8,11 +9,13 @@ from PySide6.QtCore import QObject, Signal, Slot
 from helpers.archive_helper import ARCHIVE_EXTENSIONS, extract_archive, find_valid_mod_roots, install_mod_folder
 from helpers.mods_helper import find_duplicate_mods, scan_mods_parallel, scan_workshop_mods
 
+logger = logging.getLogger(__name__)
+
 
 class ScanWorker(QObject):
     progress = Signal(int, int)
     log = Signal(str)
-    finished = Signal(list)
+    finished = Signal(object)
     failed = Signal(str)
 
     def __init__(self, mod_root, primary_lang: str, fallback_lang: str) -> None:
@@ -38,17 +41,19 @@ class ScanWorker(QObject):
                 deepl_client=None,
                 max_workers=max_workers,
                 progress_callback=on_progress,
+                resolve_dependencies=False,
             )
             self.log.emit(f"Scan abgeschlossen: {len(mods)} Mods")
             self.finished.emit(mods)
         except Exception as exc:
+            logger.exception("ScanWorker crashed for %s", self.mod_root)
             self.failed.emit(str(exc))
 
 
 class DuplicateScanWorker(QObject):
     progress = Signal(int, int, str)
     log = Signal(str)
-    finished = Signal(list)
+    finished = Signal(object)
     failed = Signal(str)
 
     def __init__(
@@ -81,6 +86,7 @@ class DuplicateScanWorker(QObject):
                 deepl_client=None,
                 max_workers=max_workers,
                 progress_callback=lambda done, total: self.progress.emit(done, max(1, total), "Scanne lokale Mods..."),
+                resolve_dependencies=False,
             )
             self.log.emit(f"Lokale Mods gelesen: {len(local_mods)}")
 
@@ -95,6 +101,7 @@ class DuplicateScanWorker(QObject):
                     max(1, total),
                     "Scanne Workshop-Mods...",
                 ),
+                resolve_dependencies=False,
             )
             self.log.emit(f"Workshop-Mods gelesen: {len(workshop_mods)}")
 
@@ -111,6 +118,11 @@ class DuplicateScanWorker(QObject):
             self.log.emit(f"Duplikat-Scan abgeschlossen: {len(matches)} Treffer")
             self.finished.emit(matches)
         except Exception as exc:
+            logger.exception(
+                "DuplicateScanWorker crashed. local=%s workshop=%s",
+                self.local_mod_root,
+                self.workshop_mod_root,
+            )
             self.failed.emit(str(exc))
 
 
@@ -149,6 +161,7 @@ class InstallWorker(QObject):
 
             self.finished.emit(any_success)
         except Exception as exc:
+            logger.exception("InstallWorker crashed for %s inputs", len(self.paths))
             self.failed.emit(str(exc))
 
     def _run_sequential(self, total: int) -> bool:

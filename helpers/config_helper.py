@@ -6,6 +6,7 @@ DEFAULT_CONFIG = {
     "language": "de",
     "fallback_language": "en",
     "app_language": "de",
+    "debug_logging_enabled": False,
     "deepl_api_key": "",
     "appworkshop_path": "",
     "workshop_mods_path": "",

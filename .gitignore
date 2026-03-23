@@ -5,3 +5,4 @@ build/
 dist/
 app.spec
 build_pyinstaller.bat
+modmanager.log

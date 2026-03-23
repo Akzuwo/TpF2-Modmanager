@@ -8,6 +8,8 @@
     "app_lang": "App-Sprache:",
     "mod_lang": "Mod-Sprache:",
     "fallback": "Fallback:",
+    "debug_logging": "Debug-Logging:",
+    "debug_logging_hint": "Debug-Ausgaben und Fehler in Logdatei schreiben",
     "deepl_key": "DeepL API Key:",
     "appworkshop_path": "Pfad zu appworkshop_1066780.acf:",
     "workshop_mods_path": "Pfad zum Steam-Workshop-Modordner:",
@@ -94,6 +96,7 @@
     "install_progress_done": "Installation abgeschlossen.",
     "deepl_key_saved": "DeepL API Key gespeichert.",
     "settings_saved": "Einstellungen gespeichert.",
+    "debug_logging_enabled_message": "Debug-Logging aktiv: {path}",
     "no_mod_lua": "Keine mod.lua gefunden",
     "missing_mod_lua": "mod.lua nicht gefunden: {path}"
   },
@@ -106,6 +109,8 @@
     "app_lang": "App language:",
     "mod_lang": "Mod language:",
     "fallback": "Fallback:",
+    "debug_logging": "Debug logging:",
+    "debug_logging_hint": "Write debug output and errors to a log file",
     "deepl_key": "DeepL API key:",
     "appworkshop_path": "Path to appworkshop_1066780.acf:",
     "workshop_mods_path": "Path to the Steam Workshop mods folder:",
@@ -192,6 +197,7 @@
     "install_progress_done": "Installation completed.",
     "deepl_key_saved": "DeepL API key saved.",
     "settings_saved": "Settings saved.",
+    "debug_logging_enabled_message": "Debug logging enabled: {path}",
     "no_mod_lua": "No mod.lua found",
     "missing_mod_lua": "mod.lua not found: {path}"
   }

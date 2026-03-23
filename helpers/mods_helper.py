@@ -943,6 +943,7 @@ def scan_mods_parallel(
     deepl_client: DeepLClient | None = None,
     max_workers: int | None = None,
     progress_callback=None,
+    resolve_dependencies: bool = True,
 ) -> list[dict]:
     if not mod_root.exists() or not mod_root.is_dir():
         logger.warning("Scan skipped because mod root is invalid: %s", mod_root)
@@ -997,7 +998,8 @@ def scan_mods_parallel(
                 progress_callback(processed, total)
 
     mods.sort(key=lambda item: item.get("name", "").lower())
-    resolve_dependency_graph(mods)
+    if resolve_dependencies:
+        resolve_dependency_graph(mods)
     logger.info("Finished scan for %s: %s mods", mod_root, len(mods))
     return mods
 
@@ -1202,6 +1204,7 @@ def scan_workshop_mods(
     primary_lang: str,
     fallback_lang: str,
     progress_callback=None,
+    resolve_dependencies: bool = True,
 ) -> list[dict]:
     ids = parse_workshop_ids_from_acf(acf_path) if acf_path else []
     folders = _collect_workshop_folder_candidates(workshop_root, ids)
@@ -1242,6 +1245,8 @@ def scan_workshop_mods(
             if progress_callback:
                 progress_callback(processed, total)
 
+    if resolve_dependencies:
+        resolve_dependency_graph(workshop_mods)
     logger.info("Scanned %s workshop mods in %s", len(workshop_mods), workshop_root)
     return workshop_mods
 

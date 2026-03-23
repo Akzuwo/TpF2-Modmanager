@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -31,10 +32,12 @@ from PySide6.QtWidgets import (
 from helpers.archive_helper import ARCHIVE_EXTENSIONS
 from helpers.config_helper import load_config, save_config
 from helpers.i18n import APP_LANGS, I18N
+from helpers.logging_helper import configure_logging
 from helpers.mods_helper import (
     SUPPORTED_MOD_LANGS,
     delete_mod_folder,
     delete_or_unsubscribe_workshop_mod,
+    resolve_dependency_graph,
 )
 from ui.dialogs import DuplicateResolutionDialog, ModDetailsPage, SettingsDialog
 from ui.workers import DuplicateScanWorker, InstallWorker, ScanWorker
@@ -119,9 +122,11 @@ class ModManagerMainWindow(QMainWindow):
         self.duplicate_thread: QThread | None = None
         self.duplicate_worker: DuplicateScanWorker | None = None
         self.duplicate_scan_in_progress = False
+        self.rescan_after_duplicate_actions = False
         self.install_thread: QThread | None = None
         self.install_worker: InstallWorker | None = None
         self.install_in_progress = False
+        self.rescan_after_install = False
 
         self.setWindowTitle(self.i18n.t("app_title"))
         self.resize(1380, 860)
@@ -377,6 +382,7 @@ class ModManagerMainWindow(QMainWindow):
         self.config["language"] = self.config.get("language", "de")
         self.config["fallback_language"] = self.config.get("fallback_language", "en")
         self.config["app_language"] = self.config.get("app_language", "de")
+        self.config["debug_logging_enabled"] = bool(self.config.get("debug_logging_enabled", False))
         self.config["deepl_api_key"] = self.config.get("deepl_api_key", "")
         self.config["appworkshop_path"] = self.config.get("appworkshop_path", "")
         self.config["workshop_mods_path"] = self.config.get("workshop_mods_path", "")
@@ -388,6 +394,7 @@ class ModManagerMainWindow(QMainWindow):
     def log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_text.append(f"[{timestamp}] {message}")
+        logging.getLogger(__name__).info(message)
 
     def pick_folder(self) -> None:
         selected = QFileDialog.getExistingDirectory(self, self.i18n.t("mods_dir"), self.path_edit.text().strip())
@@ -442,8 +449,11 @@ class ModManagerMainWindow(QMainWindow):
         self.scan_worker.log.connect(self.log)
         self.scan_worker.finished.connect(self.on_scan_finished)
         self.scan_worker.failed.connect(self.on_scan_failed)
+        self.scan_worker.finished.connect(self.scan_worker.deleteLater)
+        self.scan_worker.failed.connect(self.scan_worker.deleteLater)
         self.scan_worker.finished.connect(self.scan_thread.quit)
         self.scan_worker.failed.connect(self.scan_thread.quit)
+        self.scan_thread.finished.connect(self._cleanup_scan)
         self.scan_thread.finished.connect(self.scan_thread.deleteLater)
         self.scan_thread.start()
 
@@ -453,17 +463,19 @@ class ModManagerMainWindow(QMainWindow):
         self.progress_label.setText(self.i18n.t("scan_progress", current=done, total=total))
 
     def on_scan_finished(self, mods: list) -> None:
+        logging.getLogger(__name__).info("on_scan_finished start: %s mods", len(mods))
+        resolve_dependency_graph(mods)
+        logging.getLogger(__name__).info("on_scan_finished dependencies resolved")
         self.mods_data = mods
         self.progress_bar.setValue(self.progress_bar.maximum())
         self.progress_label.setText(self.i18n.t("scan_progress_done"))
         self.refresh_table()
+        logging.getLogger(__name__).info("on_scan_finished table refreshed")
         self.log(self.i18n.t("scan_done", count=len(self.mods_data)))
-        self._cleanup_scan()
 
     def on_scan_failed(self, error_text: str) -> None:
         self.log(f"ERROR: Scan aborted: {error_text}")
         QMessageBox.critical(self, self.i18n.t("error"), error_text)
-        self._cleanup_scan()
 
     def _cleanup_scan(self) -> None:
         self.scan_in_progress = False
@@ -515,8 +527,11 @@ class ModManagerMainWindow(QMainWindow):
         self.duplicate_worker.log.connect(self.log)
         self.duplicate_worker.finished.connect(self.on_duplicate_finished)
         self.duplicate_worker.failed.connect(self.on_duplicate_failed)
+        self.duplicate_worker.finished.connect(self.duplicate_worker.deleteLater)
+        self.duplicate_worker.failed.connect(self.duplicate_worker.deleteLater)
         self.duplicate_worker.finished.connect(self.duplicate_thread.quit)
         self.duplicate_worker.failed.connect(self.duplicate_thread.quit)
+        self.duplicate_thread.finished.connect(self._cleanup_duplicate_scan)
         self.duplicate_thread.finished.connect(self.duplicate_thread.deleteLater)
         self.duplicate_thread.start()
 
@@ -529,24 +544,25 @@ class ModManagerMainWindow(QMainWindow):
         self.progress_bar.setValue(self.progress_bar.maximum())
         self.progress_label.setText(self.i18n.t("duplicate_scan_done"))
         self.log(self.i18n.t("duplicate_found_count", count=len(matches)))
-        self._cleanup_duplicate_scan()
-        self._handle_duplicate_matches(matches)
+        self.rescan_after_duplicate_actions = self._handle_duplicate_matches(matches)
 
     def on_duplicate_failed(self, error_text: str) -> None:
         self.log(f"ERROR: Duplicate scan aborted: {error_text}")
         QMessageBox.critical(self, self.i18n.t("error"), error_text)
-        self._cleanup_duplicate_scan()
 
     def _cleanup_duplicate_scan(self) -> None:
         self.duplicate_scan_in_progress = False
         self._update_action_state()
         self.duplicate_worker = None
         self.duplicate_thread = None
+        if self.rescan_after_duplicate_actions:
+            self.rescan_after_duplicate_actions = False
+            self.scan()
 
-    def _handle_duplicate_matches(self, matches: list[dict]) -> None:
+    def _handle_duplicate_matches(self, matches: list[dict]) -> bool:
         if not matches:
             QMessageBox.information(self, self.i18n.t("find_duplicates"), self.i18n.t("duplicate_none_found"))
-            return
+            return False
 
         behavior = self.config.get("duplicate_behavior", "manual")
         action_count = 0
@@ -579,8 +595,7 @@ class ModManagerMainWindow(QMainWindow):
                 manual=manual_count,
             ),
         )
-        if action_count:
-            self.scan()
+        return action_count > 0
 
     def _apply_duplicate_action(self, match: dict, action: str, appworkshop_path: Path | None) -> bool:
         local_mod = match.get("local_mod", {})
@@ -624,6 +639,7 @@ class ModManagerMainWindow(QMainWindow):
         return ", ".join(values)
 
     def refresh_table(self) -> None:
+        logging.getLogger(__name__).debug("refresh_table start: mods=%s", len(self.mods_data))
         query = self.search_edit.text().strip().lower()
         self.filtered_mods = []
         for mod in self.mods_data:
@@ -652,7 +668,7 @@ class ModManagerMainWindow(QMainWindow):
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
-                item.setData(Qt.UserRole, mod)
+                item.setData(Qt.UserRole, row)
                 self.table.setItem(row, column, item)
 
         if query:
@@ -661,6 +677,7 @@ class ModManagerMainWindow(QMainWindow):
             count_text = self.i18n.t("mods_count", count=len(self.filtered_mods))
         self.stats_label.setText(count_text)
         self.table_summary_label.setText(count_text)
+        logging.getLogger(__name__).debug("refresh_table done: filtered=%s", len(self.filtered_mods))
 
     def clear_search(self) -> None:
         self.search_edit.clear()
@@ -669,10 +686,9 @@ class ModManagerMainWindow(QMainWindow):
         row = self.table.currentRow()
         if row < 0:
             return None
-        item = self.table.item(row, 0)
-        if item is None:
+        if row >= len(self.filtered_mods):
             return None
-        return item.data(Qt.UserRole)
+        return self.filtered_mods[row]
 
     def show_context_menu(self, pos) -> None:
         index = self.table.indexAt(pos)
@@ -682,9 +698,10 @@ class ModManagerMainWindow(QMainWindow):
         self.context_menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def on_table_item_double_clicked(self, item: QTableWidgetItem) -> None:
-        mod = item.data(Qt.UserRole)
-        if not mod:
+        row = item.row()
+        if row < 0 or row >= len(self.filtered_mods):
             return
+        mod = self.filtered_mods[row]
         self.show_mod_details(mod)
 
     def show_mod_details(self, mod: dict) -> None:
@@ -761,10 +778,13 @@ class ModManagerMainWindow(QMainWindow):
             return
 
         self.config.update(dialog.values())
+        log_file = configure_logging(self.data_dir, bool(self.config.get("debug_logging_enabled", False)))
         self.i18n.set_language(self.config.get("app_language", "de"))
         self._persist_all()
         self._apply_language()
         self.log(self.i18n.t("settings_saved"))
+        if self.config.get("debug_logging_enabled", False):
+            self.log(self.i18n.t("debug_logging_enabled_message", path=str(log_file)))
 
         if self.mods_data:
             self.scan()
@@ -816,8 +836,11 @@ class ModManagerMainWindow(QMainWindow):
         self.install_worker.log.connect(self.log)
         self.install_worker.finished.connect(self.on_install_finished)
         self.install_worker.failed.connect(self.on_install_failed)
+        self.install_worker.finished.connect(self.install_worker.deleteLater)
+        self.install_worker.failed.connect(self.install_worker.deleteLater)
         self.install_worker.finished.connect(self.install_thread.quit)
         self.install_worker.failed.connect(self.install_thread.quit)
+        self.install_thread.finished.connect(self._cleanup_install)
         self.install_thread.finished.connect(self.install_thread.deleteLater)
         self.install_thread.start()
 
@@ -829,17 +852,17 @@ class ModManagerMainWindow(QMainWindow):
     def on_install_finished(self, any_success: bool) -> None:
         self.progress_bar.setValue(self.progress_bar.maximum())
         self.progress_label.setText(self.i18n.t("install_progress_done"))
-        self.install_in_progress = False
-        self._update_action_state()
-        self.install_worker = None
-        self.install_thread = None
-        if any_success:
-            self.scan()
+        self.rescan_after_install = any_success
 
     def on_install_failed(self, error_text: str) -> None:
         self.log(f"ERROR: Installation aborted: {error_text}")
         QMessageBox.critical(self, self.i18n.t("error"), error_text)
+
+    def _cleanup_install(self) -> None:
         self.install_in_progress = False
         self._update_action_state()
         self.install_worker = None
         self.install_thread = None
+        if self.rescan_after_install:
+            self.rescan_after_install = False
+            self.scan()
