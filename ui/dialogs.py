@@ -1,7 +1,8 @@
 from pathlib import Path
+import struct
 
 from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QImage, QPixmap
+from PySide6.QtGui import QDesktopServices, QImage, QImageReader, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -49,6 +50,100 @@ APP_LANG_LABELS = {
 }
 
 DEEPL_GUIDE_URL = "https://www.deepl.com/en/pro/change-plan#developer"
+
+
+def _load_tga_qimage(path: Path) -> QImage | None:
+    try:
+        data = path.read_bytes()
+    except Exception:
+        return None
+
+    if len(data) < 18:
+        return None
+
+    try:
+        (
+            image_id_length,
+            color_map_type,
+            image_type,
+            color_map_first_entry,
+            color_map_length,
+            color_map_entry_size,
+            x_origin,
+            y_origin,
+            width,
+            height,
+            pixel_depth,
+            image_descriptor,
+        ) = struct.unpack("<BBBHHBHHHHBB", data[:18])
+    except struct.error:
+        return None
+
+    del color_map_first_entry, color_map_length, color_map_entry_size, x_origin, y_origin
+
+    if color_map_type != 0 or image_type not in {2, 10} or pixel_depth not in {24, 32} or width <= 0 or height <= 0:
+        return None
+
+    bytes_per_pixel = pixel_depth // 8
+    offset = 18 + image_id_length
+    pixel_count = width * height
+    pixels = bytearray()
+
+    def append_pixel(chunk: bytes) -> None:
+        if len(chunk) < bytes_per_pixel:
+            raise ValueError("Incomplete TGA pixel data")
+        blue = chunk[0]
+        green = chunk[1]
+        red = chunk[2]
+        alpha = chunk[3] if bytes_per_pixel == 4 else 255
+        pixels.extend((red, green, blue, alpha))
+
+    try:
+        if image_type == 2:
+            needed = pixel_count * bytes_per_pixel
+            raw = data[offset : offset + needed]
+            if len(raw) != needed:
+                return None
+            for index in range(0, len(raw), bytes_per_pixel):
+                append_pixel(raw[index : index + bytes_per_pixel])
+        else:
+            while len(pixels) < pixel_count * 4 and offset < len(data):
+                packet_header = data[offset]
+                offset += 1
+                run_length = (packet_header & 0x7F) + 1
+                if packet_header & 0x80:
+                    chunk = data[offset : offset + bytes_per_pixel]
+                    offset += bytes_per_pixel
+                    for _ in range(run_length):
+                        append_pixel(chunk)
+                else:
+                    chunk_size = run_length * bytes_per_pixel
+                    chunk = data[offset : offset + chunk_size]
+                    offset += chunk_size
+                    if len(chunk) != chunk_size:
+                        return None
+                    for index in range(0, len(chunk), bytes_per_pixel):
+                        append_pixel(chunk[index : index + bytes_per_pixel])
+    except ValueError:
+        return None
+
+    if len(pixels) != pixel_count * 4:
+        return None
+
+    # Bit 5 marks a top-left origin. Without it, rows are stored bottom-up.
+    if not (image_descriptor & 0x20):
+        stride = width * 4
+        flipped = bytearray(len(pixels))
+        for row in range(height):
+            source_start = row * stride
+            target_start = (height - 1 - row) * stride
+            flipped[target_start : target_start + stride] = pixels[source_start : source_start + stride]
+        pixels = flipped
+
+    image = QImage(bytes(pixels), width, height, width * 4, QImage.Format_RGBA8888)
+    if image.isNull():
+        return None
+    return image.copy()
 
 
 class SettingsDialog(QDialog):
@@ -587,11 +682,16 @@ def load_preview_pixmap(path: Path | None) -> QPixmap | None:
     if path is None or not path.exists():
         return None
 
-    suffix = path.suffix.lower()
-    if suffix in {".png", ".jpg", ".jpeg", ".bmp", ".webp"}:
-        pixmap = QPixmap(str(path))
+    reader = QImageReader(str(path))
+    image = reader.read()
+    if not image.isNull():
+        pixmap = QPixmap.fromImage(image)
         if not pixmap.isNull():
             return pixmap
+
+    pixmap = QPixmap(str(path))
+    if not pixmap.isNull():
+        return pixmap
 
     if PIL_AVAILABLE:
         try:
@@ -606,5 +706,10 @@ def load_preview_pixmap(path: Path | None) -> QPixmap | None:
                 )
                 return QPixmap.fromImage(image.copy())
         except Exception:
-            return None
+            pass
+
+    if path.suffix.lower() == ".tga":
+        image = _load_tga_qimage(path)
+        if image is not None:
+            return QPixmap.fromImage(image)
     return None

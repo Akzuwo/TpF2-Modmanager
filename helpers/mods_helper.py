@@ -115,6 +115,13 @@ def extract_return_table(lua_text: str) -> str:
     return extract_balanced_block(lua_text, match.end() - 1)
 
 
+def extract_assigned_table(lua_text: str, variable_name: str) -> str:
+    match = re.search(rf"\b(?:local\s+)?{re.escape(variable_name)}\s*=\s*\{{", lua_text)
+    if not match:
+        return ""
+    return extract_balanced_block(lua_text, match.end() - 1)
+
+
 def split_top_level_lua_entries(table_text: str) -> list[str]:
     text = table_text.strip()
     if text.startswith("{") and text.endswith("}"):
@@ -132,6 +139,12 @@ def split_top_level_lua_entries(table_text: str) -> list[str]:
     while i < len(text):
         char = text[i]
         next_char = text[i + 1] if i + 1 < len(text) else ""
+
+        if not in_string and not in_long_string and char == "-" and next_char == "-":
+            i += 2
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
 
         if in_long_string:
             current.append(char)
@@ -180,7 +193,7 @@ def split_top_level_lua_entries(table_text: str) -> list[str]:
             i += 1
             continue
 
-        if char == "," and depth == 0:
+        if char in {",", ";"} and depth == 0:
             part = "".join(current).strip()
             if part:
                 entries.append(part)
@@ -532,10 +545,10 @@ def parse_lua_variables(text: str) -> dict[str, str]:
     for statement in split_lua_statements(text):
         if statement.startswith("return"):
             continue
-        if statement.startswith("function") or statement.startswith("end"):
+        if statement.startswith("function") or statement.startswith("local function") or statement.startswith("end"):
             continue
 
-        match = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)\s*$", statement, flags=re.S)
+        match = re.match(r"\s*(?:local\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)\s*$", statement, flags=re.S)
         if not match:
             continue
 
@@ -555,6 +568,8 @@ def _is_probable_lang_key(key: str) -> bool:
     for aliases in LANG_ALIASES.values():
         if normalized in aliases:
             return True
+    if re.fullmatch(r"[a-z]{2,3}(?:_[a-z0-9]{2,8})?", normalized):
+        return True
     return False
 
 
@@ -562,10 +577,14 @@ def parse_strings_lua(file_path: Path) -> tuple[dict[str, dict[str, str]], dict[
     text = read_text_with_fallback(file_path)
 
     return_match = re.search(r"\breturn\s*\{", text)
-    preamble = text[: return_match.start()] if return_match else text
+    return_name_match = re.search(r"\breturn\s+([A-Za-z_][A-Za-z0-9_]*)\b", text)
+    preamble_end = return_match.start() if return_match else return_name_match.start() if return_name_match else len(text)
+    preamble = text[:preamble_end]
     variables = parse_lua_variables(preamble)
 
     table = extract_return_table(text)
+    if not table and return_name_match:
+        table = extract_assigned_table(text, return_name_match.group(1))
     if not table:
         return {}, variables
 
@@ -1009,15 +1028,45 @@ def scan_mods(mod_root: Path, primary_lang: str, fallback_lang: str, deepl_clien
 
 
 def find_preview_image(mod_path: Path) -> Path | None:
-    preferred = ["image_00.tga", "image_00.dds", "image_00.png", "image_00.jpg", "image_00.jpeg"]
-    for name in preferred:
+    preferred_suffixes = [".tga", ".dds", ".png", ".jpg", ".jpeg", ".bmp", ".webp"]
+    preferred_names = [f"image_00{suffix}" for suffix in preferred_suffixes]
+
+    for name in preferred_names:
         candidate = mod_path / name
-        if candidate.exists():
-            return candidate
-    for candidate in mod_path.glob("image_00.*"):
         if candidate.is_file():
             return candidate
-    return None
+
+    root_files = sorted(
+        (candidate for candidate in mod_path.iterdir() if candidate.is_file()),
+        key=lambda candidate: candidate.name.lower(),
+    )
+    for name in preferred_names:
+        for candidate in root_files:
+            if candidate.name.lower() == name:
+                return candidate
+
+    matches: list[Path] = []
+    for candidate in mod_path.rglob("*"):
+        if not candidate.is_file():
+            continue
+        if candidate.stem.lower() != "image_00":
+            continue
+        if candidate.suffix.lower() not in preferred_suffixes:
+            continue
+        matches.append(candidate)
+
+    if not matches:
+        return None
+
+    suffix_rank = {suffix: index for index, suffix in enumerate(preferred_suffixes)}
+    matches.sort(
+        key=lambda candidate: (
+            len(candidate.relative_to(mod_path).parts),
+            suffix_rank.get(candidate.suffix.lower(), len(preferred_suffixes)),
+            str(candidate).lower(),
+        )
+    )
+    return matches[0]
 
 
 def find_mod_link(fields: dict[str, str]) -> str:
