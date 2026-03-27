@@ -1,0 +1,65 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  pyinstaller:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: TpF2-Modmanager-windows
+            binary_path: dist/TpF2-Modmanager.exe
+            data_sep: ;
+            icon_path: media/icon.ico
+          - os: ubuntu-latest
+            artifact_name: TpF2-Modmanager-linux
+            binary_path: dist/TpF2-Modmanager
+            data_sep: :
+            icon_path: media/icon.png
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install PyInstaller PySide6 pillow py7zr rarfile deepl
+
+      - name: Build with PyInstaller
+        shell: pwsh
+        run: |
+          $args = @(
+            '--noconfirm',
+            '--clean',
+            '--onefile',
+            '--windowed',
+            '--name', 'TpF2-Modmanager',
+            'app.py',
+            '--add-data', "resources${{ matrix.data_sep }}resources",
+            '--add-data', "media${{ matrix.data_sep }}media"
+          )
+
+          if ('${{ matrix.icon_path }}') {
+            $args += @('--icon', '${{ matrix.icon_path }}')
+          }
+
+          python -m PyInstaller @args
+        working-directory: TpF2-Modmanager
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: TpF2-Modmanager/${{ matrix.binary_path }}
+          if-no-files-found: error

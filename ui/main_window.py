@@ -1,5 +1,4 @@
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -39,6 +38,7 @@ from helpers.mods_helper import (
     delete_or_unsubscribe_workshop_mod,
     resolve_dependency_graph,
 )
+from helpers.platform_helper import open_path_in_file_manager
 from ui.dialogs import DuplicateResolutionDialog, ModDetailsPage, SettingsDialog
 from ui.workers import DuplicateScanWorker, InstallWorker, ScanWorker
 
@@ -388,6 +388,9 @@ class ModManagerMainWindow(QMainWindow):
         self.config["workshop_mods_path"] = self.config.get("workshop_mods_path", "")
         self.config["duplicate_behavior"] = self.config.get("duplicate_behavior", "manual")
         self.config["parallel_install_enabled"] = bool(self.config.get("parallel_install_enabled", False))
+        self.config["delete_download_archives_after_install"] = bool(
+            self.config.get("delete_download_archives_after_install", False)
+        )
         self.config["max_parallel_workers"] = int(self.config.get("max_parallel_workers", 2))
         save_config(self.config_path, self.config)
 
@@ -732,7 +735,9 @@ class ModManagerMainWindow(QMainWindow):
             QMessageBox.critical(self, self.i18n.t("error"), self.i18n.t("missing_mod_lua", path=str(mod_path)))
             return
 
-        os.startfile(str(mod_path))
+        ok, message = open_path_in_file_manager(mod_path)
+        if not ok:
+            QMessageBox.critical(self, self.i18n.t("error"), message)
 
     def delete_selected_mod(self) -> None:
         mod = self.get_selected_mod()
@@ -828,6 +833,7 @@ class ModManagerMainWindow(QMainWindow):
             mods_root,
             self.i18n.t("no_mod_lua"),
             bool(self.config.get("parallel_install_enabled", False)),
+            bool(self.config.get("delete_download_archives_after_install", False)),
             int(self.config.get("max_parallel_workers", 2)),
         )
         self.install_worker.moveToThread(self.install_thread)

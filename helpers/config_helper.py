@@ -13,6 +13,7 @@ DEFAULT_CONFIG = {
     "duplicate_behavior": "manual",
     "parallel_install_enabled": False,
     "max_parallel_workers": 2,
+    "delete_download_archives_after_install": False,
 }
 
 

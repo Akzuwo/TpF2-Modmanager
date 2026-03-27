@@ -12,6 +12,7 @@ Dieses README enthaelt eine kurze Bedienungsanleitung in Deutsch und Englisch.
 - Beim ersten Start wird `config.json` neben der `.exe` erstellt.
 - Stelle in der App dein `Mods-Verzeichnis` ein und klicke danach auf `Scannen`.
 - Falls du DeepL nutzen willst, trage deinen API-Key in `Einstellungen` ein.
+- GitHub Actions baut bei jedem Push zusaetzlich eine Linux-Binary ohne Dateiendung.
 
 ### English
 - If you use the `.exe`, you do not need Python.
@@ -20,6 +21,7 @@ Dieses README enthaelt eine kurze Bedienungsanleitung in Deutsch und Englisch.
 - On first launch, `config.json` is created next to the `.exe`.
 - Set your `Mods folder` in the app and then click `Scan`.
 - If you want to use DeepL, enter your API key in `Settings`.
+- GitHub Actions also builds a Linux binary without a file extension on every push.
 
 ## Deutsch
 
@@ -35,7 +37,7 @@ Desktop-Tool (PySide6) zum Verwalten von Transport Fever 2 Mods:
 
 ### Voraussetzungen
 - Python 3.10+
-- Windows (wegen `os.startfile`, empfohlen)
+- Windows oder Linux
 
 Optionale Python-Pakete:
 - `Pillow` fuer Bildvorschau
@@ -50,8 +52,17 @@ Optionales System-Tool:
 ### Installation
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
 pip install PySide6 pillow py7zr rarfile deepl
+```
+
+Windows aktivieren:
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Linux aktivieren:
+```bash
+source .venv/bin/activate
 ```
 
 ### Start
@@ -109,7 +120,7 @@ Desktop tool (PySide6) for managing Transport Fever 2 mods:
 
 ### Requirements
 - Python 3.10+
-- Windows recommended (`os.startfile` is used)
+- Windows or Linux
 
 Optional Python packages:
 - `Pillow` for image previews
@@ -124,8 +135,17 @@ Optional system tool:
 ### Installation
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
 pip install PySide6 pillow py7zr rarfile deepl
+```
+
+Activate on Windows:
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Activate on Linux:
+```bash
+source .venv/bin/activate
 ```
 
 ### Run
@@ -166,3 +186,19 @@ Note: do not commit `config.json` when it contains sensitive values.
 - Cannot extract `.rar`: install `rarfile` and make `unrar`/`bsdtar` or `7z` available.
 - App does not start: install `PySide6`.
 - No preview image: install `Pillow` and verify the mod contains `image_00.*`.
+
+## Builds / CI
+
+### Deutsch
+- Der Workflow liegt unter `.github/workflows/build.yml`.
+- Bei jedem Push und manuell ueber `workflow_dispatch` werden zwei PyInstaller-Builds erzeugt:
+  - Windows: `TpF2-Modmanager.exe`
+  - Linux: `TpF2-Modmanager`
+- Die Artefakte findest du im jeweiligen GitHub-Actions-Run unter `Artifacts`.
+
+### English
+- The workflow lives in `.github/workflows/build.yml`.
+- On every push and via `workflow_dispatch`, two PyInstaller builds are created:
+  - Windows: `TpF2-Modmanager.exe`
+  - Linux: `TpF2-Modmanager`
+- You can find both artifacts in the corresponding GitHub Actions run under `Artifacts`.

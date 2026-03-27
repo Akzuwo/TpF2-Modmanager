@@ -23,6 +23,7 @@ def main() -> int:
 
     from helpers.config_helper import load_config
     from helpers.logging_helper import configure_logging
+    from helpers.platform_helper import get_app_icon_path
     from ui.main_window import ModManagerMainWindow
     from ui.theme import APP_STYLE_SHEET, configure_application
 
@@ -35,8 +36,8 @@ def main() -> int:
     app.setStyleSheet(APP_STYLE_SHEET)
     configure_application(app)
 
-    app_icon = resource_dir / "media" / "icon.ico"
-    if app_icon.exists():
+    app_icon = get_app_icon_path(resource_dir)
+    if app_icon is not None:
         app.setWindowIcon(QIcon(str(app_icon)))
     window = ModManagerMainWindow(resource_dir=resource_dir, data_dir=data_dir)
     window.show()

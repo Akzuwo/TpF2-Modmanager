@@ -195,6 +195,11 @@ class SettingsDialog(QDialog):
         self.parallel_install_checkbox = QCheckBox(self.i18n.t("parallel_install_hint"))
         self.parallel_install_checkbox.setChecked(bool(config.get("parallel_install_enabled", False)))
 
+        self.delete_download_archives_checkbox = QCheckBox(self.i18n.t("delete_download_archives_hint"))
+        self.delete_download_archives_checkbox.setChecked(
+            bool(config.get("delete_download_archives_after_install", False))
+        )
+
         self.max_workers_spin = QSpinBox()
         self.max_workers_spin.setRange(1, 16)
         self.max_workers_spin.setValue(int(config.get("max_parallel_workers", 2)))
@@ -231,8 +236,10 @@ class SettingsDialog(QDialog):
         form.addWidget(self.duplicate_behavior_combo, 6, 1, 1, 3)
         form.addWidget(QLabel(self.i18n.t("parallel_install")), 7, 0)
         form.addWidget(self.parallel_install_checkbox, 7, 1, 1, 2)
-        form.addWidget(QLabel(self.i18n.t("max_workers")), 8, 0)
-        form.addWidget(self.max_workers_spin, 8, 1)
+        form.addWidget(QLabel(self.i18n.t("delete_download_archives")), 8, 0)
+        form.addWidget(self.delete_download_archives_checkbox, 8, 1, 1, 3)
+        form.addWidget(QLabel(self.i18n.t("max_workers")), 9, 0)
+        form.addWidget(self.max_workers_spin, 9, 1)
 
         info = QLabel(self.i18n.t("guide_info"))
         info.setObjectName("MutedLabel")
@@ -284,6 +291,7 @@ class SettingsDialog(QDialog):
             "workshop_mods_path": self.workshop_mods_edit.text().strip(),
             "duplicate_behavior": self.duplicate_behavior_combo.currentData(),
             "parallel_install_enabled": self.parallel_install_checkbox.isChecked(),
+            "delete_download_archives_after_install": self.delete_download_archives_checkbox.isChecked(),
             "max_parallel_workers": self.max_workers_spin.value(),
         }
 

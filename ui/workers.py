@@ -138,6 +138,7 @@ class InstallWorker(QObject):
         mods_root: Path,
         no_mod_lua_message: str,
         parallel_enabled: bool,
+        delete_download_archives: bool,
         max_workers: int,
     ) -> None:
         super().__init__()
@@ -145,7 +146,9 @@ class InstallWorker(QObject):
         self.mods_root = mods_root
         self.no_mod_lua_message = no_mod_lua_message
         self.parallel_enabled = parallel_enabled
+        self.delete_download_archives = delete_download_archives
         self.max_workers = max(1, max_workers)
+        self.downloads_dir = self._resolve_downloads_dir()
 
     @Slot()
     def run(self) -> None:
@@ -217,7 +220,15 @@ class InstallWorker(QObject):
             extracted, message = extract_archive(archive_path, temp_path)
             if not extracted:
                 return False, [f"ERROR: {archive_path.name}: {message}"]
-            return self._install_from_extracted_root(temp_path, archive_path.name)
+            success, messages = self._install_from_extracted_root(temp_path, archive_path.name)
+
+        if success:
+            deleted, delete_message = self._delete_download_archive_if_needed(archive_path)
+            if delete_message:
+                prefix = "OK: " if deleted else "ERROR: "
+                messages.append(prefix + delete_message)
+
+        return success, messages
 
     def _install_from_directory(self, source_dir: Path) -> tuple[bool, list[str]]:
         return self._install_from_extracted_root(source_dir, source_dir.name)
@@ -235,3 +246,63 @@ class InstallWorker(QObject):
             if not ok:
                 all_ok = False
         return all_ok, messages
+
+    def _delete_download_archive_if_needed(self, archive_path: Path) -> tuple[bool, str]:
+        if not self.delete_download_archives:
+            return False, ""
+        if self.downloads_dir is None:
+            return False, ""
+
+        resolved_archive = archive_path.resolve()
+        if not resolved_archive.is_relative_to(self.downloads_dir):
+            return False, ""
+
+        try:
+            resolved_archive.unlink()
+        except Exception as exc:
+            logger.exception("Could not delete installed archive from downloads: %s", archive_path)
+            return False, f"Archiv konnte nach Installation nicht geloescht werden: {archive_path.name} ({exc})"
+
+        return True, f"Archiv aus Downloads geloescht: {archive_path.name}"
+
+    @staticmethod
+    def _resolve_downloads_dir() -> Path | None:
+        if os.name == "nt":
+            try:
+                import ctypes
+                from uuid import UUID
+
+                class GUID(ctypes.Structure):
+                    _fields_ = [
+                        ("Data1", ctypes.c_uint32),
+                        ("Data2", ctypes.c_uint16),
+                        ("Data3", ctypes.c_uint16),
+                        ("Data4", ctypes.c_ubyte * 8),
+                    ]
+
+                    @classmethod
+                    def from_uuid(cls, value: UUID) -> "GUID":
+                        data4 = (ctypes.c_ubyte * 8).from_buffer_copy(value.bytes[8:])
+                        return cls(value.time_low, value.time_mid, value.time_hi_version, data4)
+
+                downloads_guid = GUID.from_uuid(UUID("{374DE290-123F-4565-9164-39C4925E467B}"))
+                path_ptr = ctypes.c_wchar_p()
+                result = ctypes.windll.shell32.SHGetKnownFolderPath(
+                    ctypes.byref(downloads_guid),
+                    0,
+                    None,
+                    ctypes.byref(path_ptr),
+                )
+                if result == 0 and path_ptr.value:
+                    try:
+                        return Path(path_ptr.value).resolve()
+                    finally:
+                        ctypes.windll.ole32.CoTaskMemFree(path_ptr)
+            except Exception:
+                logger.exception("Could not resolve Windows Downloads folder via SHGetKnownFolderPath")
+
+        downloads_dir = Path.home() / "Downloads"
+        try:
+            return downloads_dir.resolve()
+        except Exception:
+            return downloads_dir if downloads_dir.exists() else None

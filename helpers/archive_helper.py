@@ -1,4 +1,5 @@
-﻿import re
+import os
+import re
 import shutil
 import subprocess
 import zipfile
@@ -8,6 +9,8 @@ ARCHIVE_EXTENSIONS = {".zip", ".7z", ".rar"}
 
 SEVEN_ZIP_CANDIDATES = [
     "7z",
+    "7zz",
+    "7za",
     r"C:\Program Files\7-Zip\7z.exe",
     r"C:\Program Files (x86)\7-Zip\7z.exe",
 ]
@@ -20,6 +23,8 @@ RAR_TOOL_CANDIDATES = [
     r"C:\Program Files (x86)\WinRAR\WinRAR.exe",
     r"C:\Program Files (x86)\WinRAR\Rar.exe",
     "unrar",
+    "unar",
+    "bsdtar",
     "rar",
 ]
 
@@ -67,7 +72,7 @@ def _extract_with_7z(archive_path: Path, destination: Path) -> tuple[bool, str]:
 
 
 def _extract_with_rar_tools(archive_path: Path, destination: Path) -> tuple[bool, str]:
-    destination_arg = f"{destination}\\"
+    destination_arg = f"{destination}{os.sep}"
     commands = [[tool, "x", "-o+", str(archive_path), destination_arg] for tool in RAR_TOOL_CANDIDATES]
     ok, detail = _run_extractor(commands)
     if ok:
