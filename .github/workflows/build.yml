@@ -19,7 +19,7 @@ jobs:
           - os: ubuntu-latest
             artifact_name: TpF2-Modmanager-linux
             binary_path: dist/TpF2-Modmanager
-            data_sep: :
+            data_sep:
             icon_path: media/icon.png
 
     steps:
