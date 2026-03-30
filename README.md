@@ -197,7 +197,8 @@ Note: do not commit `config.json` when it contains sensitive values.
 - Die Artefakte findest du im jeweiligen GitHub-Actions-Run unter `Artifacts`.
 - Fuer einen manuellen Release-Run oeffne in GitHub `Actions` -> `Build` -> `Run workflow`.
 - Setze `publish_release` auf `true`, wenn nach erfolgreichem Build automatisch ein GitHub-Release erstellt werden soll.
-- Optional kannst du `version` setzen. Dann heissen Tag und Release `v<version>`, z. B. `v1.2.3`.
+- Optional kannst du `version` setzen. Trage nur die Versionsnummer ein, z. B. `1.2.3`, nicht `Release 1.2.3`.
+- Dann heissen Tag und Release `v<version>`, z. B. `v1.2.3`.
 - Wenn `version` leer bleibt, wird automatisch ein Fallback wie `vmanual-42` verwendet.
 
 ### English
@@ -208,5 +209,6 @@ Note: do not commit `config.json` when it contains sensitive values.
 - You can find both artifacts in the corresponding GitHub Actions run under `Artifacts`.
 - For a manual release run, open `Actions` -> `Build` -> `Run workflow` in GitHub.
 - Set `publish_release` to `true` to automatically create a GitHub release after a successful build.
-- You can optionally set `version`. Then the tag and release name use `v<version>`, for example `v1.2.3`.
+- You can optionally set `version`. Enter only the version number, for example `1.2.3`, not `Release 1.2.3`.
+- Then the tag and release name use `v<version>`, for example `v1.2.3`.
 - If `version` is empty, the workflow falls back to a tag like `vmanual-42`.
