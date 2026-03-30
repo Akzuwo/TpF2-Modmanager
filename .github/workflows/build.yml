@@ -14,12 +14,12 @@ jobs:
           - os: windows-latest
             artifact_name: TpF2-Modmanager-windows
             binary_path: dist/TpF2-Modmanager.exe
-            data_sep: ;
+            data_sep: ";"
             icon_path: media/icon.ico
           - os: ubuntu-latest
             artifact_name: TpF2-Modmanager-linux
             binary_path: dist/TpF2-Modmanager
-            data_sep:
+            data_sep: ":"
             icon_path: media/icon.png
 
     steps:
@@ -32,34 +32,45 @@ jobs:
           python-version: "3.11"
 
       - name: Install build dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install PyInstaller PySide6 pillow py7zr rarfile deepl
+
+          if (Test-Path "requirements.txt") {
+            python -m pip install -r requirements.txt
+          }
+
+          python -m pip install PyInstaller
 
       - name: Build with PyInstaller
         shell: pwsh
         run: |
+          $dataSep = '${{ matrix.data_sep }}'
+          $iconPath = '${{ matrix.icon_path }}'
+
           $args = @(
-            '--noconfirm',
-            '--clean',
-            '--onefile',
-            '--windowed',
-            '--name', 'TpF2-Modmanager',
-            'app.py',
-            '--add-data', "resources${{ matrix.data_sep }}resources",
-            '--add-data', "media${{ matrix.data_sep }}media"
+            '--noconfirm'
+            '--clean'
+            '--onefile'
+            '--windowed'
+            '--name'
+            'TpF2-Modmanager'
+            '--add-data'
+            "resources${dataSep}resources"
+            '--add-data'
+            "media${dataSep}media"
+            'app.py'
           )
 
-          if ('${{ matrix.icon_path }}') {
-            $args += @('--icon', '${{ matrix.icon_path }}')
+          if (Test-Path $iconPath) {
+            $args += @('--icon', $iconPath)
           }
 
           python -m PyInstaller @args
-        working-directory: TpF2-Modmanager
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: TpF2-Modmanager/${{ matrix.binary_path }}
+          path: ${{ matrix.binary_path }}
           if-no-files-found: error
