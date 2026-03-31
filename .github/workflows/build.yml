@@ -28,9 +28,13 @@ jobs:
           - os: windows-latest
             artifact_name: TpF2-Modmanager-windows
             binary_name: TpF2-Modmanager.exe
+            data_sep: ";"
+            icon_path: media/icon.ico
           - os: ubuntu-latest
             artifact_name: TpF2-Modmanager-linux
             binary_name: TpF2-Modmanager
+            data_sep: ":"
+            icon_path: media/icon.png
 
     steps:
       - name: Check out repository
@@ -57,7 +61,36 @@ jobs:
       - name: Build with PyInstaller
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean app.spec
+          $dataSep = '${{ matrix.data_sep }}'
+          $iconPath = '${{ matrix.icon_path }}'
+
+          $args = @(
+            '--noconfirm'
+            '--clean'
+            '--onefile'
+            '--windowed'
+            '--name'
+            'TpF2-Modmanager'
+            '--add-data'
+            "resources${dataSep}resources"
+            '--add-data'
+            "media${dataSep}media"
+            '--collect-submodules'
+            'PIL'
+            '--collect-submodules'
+            'py7zr'
+            '--collect-submodules'
+            'rarfile'
+            '--collect-submodules'
+            'deepl'
+            'app.py'
+          )
+
+          if (Test-Path $iconPath) {
+            $args += @('--icon', $iconPath)
+          }
+
+          python -m PyInstaller @args
 
       - name: Resolve build output
         id: build_output
