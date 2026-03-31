@@ -1,5 +1,6 @@
 import logging
 import sys
+import traceback
 from pathlib import Path
 
 
@@ -44,5 +45,56 @@ def main() -> int:
     return app.exec()
 
 
+def _format_startup_error(exc: BaseException) -> str:
+    return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
+
+
+def _write_startup_error_log(text: str) -> Path:
+    _, data_dir = get_runtime_paths()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    log_path = data_dir / "startup-error.log"
+    log_path.write_text(text + "\n", encoding="utf-8")
+    return log_path
+
+
+def _show_startup_error(message: str) -> None:
+    try:
+        from PySide6.QtWidgets import QApplication, QMessageBox
+
+        existing_app = QApplication.instance()
+        app = existing_app or QApplication(sys.argv[:1])
+        QMessageBox.critical(None, "TpF2 Modmanager", message)
+        if existing_app is None:
+            app.quit()
+        return
+    except Exception:
+        pass
+
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(None, message, "TpF2 Modmanager", 0x10)
+            return
+        except Exception:
+            pass
+
+    sys.stderr.write(message + "\n")
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception as exc:
+        details = _format_startup_error(exc)
+        log_path = _write_startup_error_log(details)
+        startup_message = (
+            "Die Anwendung konnte nicht gestartet werden.\n\n"
+            f"Details wurden in\n{log_path}\n\ngespeichert.\n\n"
+            f"{exc}"
+        )
+        logging.critical("Startup failed: %s", details)
+        _show_startup_error(startup_message)
+        raise SystemExit(1) from exc
