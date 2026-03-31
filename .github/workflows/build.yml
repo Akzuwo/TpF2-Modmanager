@@ -57,7 +57,7 @@ jobs:
       - name: Build with PyInstaller
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean app.spec
+          python -m PyInstaller --noconfirm --clean app.py
 
       - name: Verify build output
         shell: pwsh
