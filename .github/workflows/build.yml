@@ -27,10 +27,10 @@ jobs:
         include:
           - os: windows-latest
             artifact_name: TpF2-Modmanager-windows
-            binary_path: dist/TpF2-Modmanager.exe
+            binary_name: TpF2-Modmanager.exe
           - os: ubuntu-latest
             artifact_name: TpF2-Modmanager-linux
-            binary_path: dist/TpF2-Modmanager
+            binary_name: TpF2-Modmanager
 
     steps:
       - name: Check out repository
@@ -57,20 +57,30 @@ jobs:
       - name: Build with PyInstaller
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean app.py
+          python -m PyInstaller --noconfirm --clean app.spec
 
-      - name: Verify build output
+      - name: Resolve build output
+        id: build_output
         shell: pwsh
         run: |
-          if (-not (Test-Path '${{ matrix.binary_path }}')) {
-            throw "Expected build output not found: ${{ matrix.binary_path }}"
+          $expectedName = '${{ matrix.binary_name }}'
+          $match = Get-ChildItem -Path dist -Recurse -File | Where-Object { $_.Name -eq $expectedName } | Select-Object -First 1
+
+          if ($null -eq $match) {
+            Write-Host "dist contents:"
+            if (Test-Path dist) {
+              Get-ChildItem -Path dist -Recurse | ForEach-Object { $_.FullName }
+            }
+            throw "Expected build output not found: $expectedName"
           }
+
+          "path=$($match.FullName)" >> $env:GITHUB_OUTPUT
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.binary_path }}
+          path: ${{ steps.build_output.outputs.path }}
           if-no-files-found: error
 
   release:
