@@ -12,7 +12,7 @@ Dieses README enthaelt eine kurze Bedienungsanleitung in Deutsch und Englisch.
 - Beim ersten Start wird `config.json` neben der `.exe` erstellt.
 - Stelle in der App dein `Mods-Verzeichnis` ein und klicke danach auf `Scannen`.
 - Falls du DeepL nutzen willst, trage deinen API-Key in `Einstellungen` ein.
-- GitHub Actions baut bei jedem Push zusaetzlich eine Linux-Binary ohne Dateiendung.
+- GitHub Actions baut bei jedem Push zusätzlich eine Linux-Binary ohne Dateiendung.
 
 ### English
 - If you use the `.exe`, you do not need Python.
@@ -25,13 +25,13 @@ Dieses README enthaelt eine kurze Bedienungsanleitung in Deutsch und Englisch.
 
 ## Deutsch
 
-### Ueberblick
+### Überblick
 Desktop-Tool (PySide6) zum Verwalten von Transport Fever 2 Mods:
 - Mods-Ordner scannen und Mod-Infos anzeigen
 - Mods suchen/filtern
 - Archive (`.zip`, `.7z`, `.rar`) installieren (inkl. Drag & Drop, falls verfuegbar)
 - Abhaengigkeiten anzeigen und aufloesen
-- Mod-Details mit aufgeloesten Feldern und Preview-Bild
+- Mod-Details mit aufgelösten Feldern und Preview-Bild
 - Mod-Ordner direkt oeffnen oder Mod loeschen
 - UI-Sprache (`de`/`en`) sowie Mod-Textsprache (`de`/`en`/`es`/`it`)
 
@@ -40,11 +40,11 @@ Desktop-Tool (PySide6) zum Verwalten von Transport Fever 2 Mods:
 - Windows oder Linux
 
 Optionale Python-Pakete:
-- `Pillow` fuer Bildvorschau
-- `py7zr` fuer `.7z`-Archive
-- `rarfile` fuer `.rar`-Archive
-- `deepl` fuer DeepL SDK (HTTP-Fallback ist eingebaut)
-- `PySide6` fuer das Desktop-GUI
+- `Pillow` für Bildvorschau
+- `py7zr` für `.7z`-Archive
+- `rarfile` für `.rar`-Archive
+- `deepl` für DeepL SDK (HTTP-Fallback ist eingebaut)
+- `PySide6` für das Desktop-GUI
 
 Optionales System-Tool:
 - `7z` CLI als Fallback beim Entpacken
