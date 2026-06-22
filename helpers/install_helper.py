@@ -4,134 +4,35 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal, Slot
-
 from helpers.archive_helper import ARCHIVE_EXTENSIONS, extract_archive, find_valid_mod_roots, install_mod_folder
-from helpers.mods_helper import find_duplicate_mods, scan_mods_parallel, scan_workshop_mods
 
 logger = logging.getLogger(__name__)
 
 
-class ScanWorker(QObject):
-    progress = Signal(int, int)
-    log = Signal(str)
-    finished = Signal(object)
-    failed = Signal(str)
-
-    def __init__(self, mod_root, primary_lang: str, fallback_lang: str) -> None:
-        super().__init__()
-        self.mod_root = mod_root
-        self.primary_lang = primary_lang
-        self.fallback_lang = fallback_lang
-
-    @Slot()
-    def run(self) -> None:
-        try:
-            cpu = os.cpu_count() or 4
-            max_workers = max(4, min(20, cpu * 2))
-            self.log.emit(f"Scan gestartet: {self.mod_root}")
-
-            def on_progress(done: int, total: int) -> None:
-                self.progress.emit(done, total)
-
-            mods = scan_mods_parallel(
-                self.mod_root,
-                self.primary_lang,
-                self.fallback_lang,
-                deepl_client=None,
-                max_workers=max_workers,
-                progress_callback=on_progress,
-                resolve_dependencies=False,
-            )
-            self.log.emit(f"Scan abgeschlossen: {len(mods)} Mods")
-            self.finished.emit(mods)
-        except Exception as exc:
-            logger.exception("ScanWorker crashed for %s", self.mod_root)
-            self.failed.emit(str(exc))
+def install_inputs(
+    paths: list[Path],
+    mods_root: Path,
+    no_mod_lua_message: str,
+    parallel_enabled: bool = False,
+    delete_download_archives: bool = False,
+    max_workers: int = 2,
+    progress_callback=None,
+    log_callback=None,
+) -> bool:
+    installer = ModInstaller(
+        paths,
+        mods_root,
+        no_mod_lua_message,
+        parallel_enabled,
+        delete_download_archives,
+        max_workers,
+        progress_callback,
+        log_callback,
+    )
+    return installer.run()
 
 
-class DuplicateScanWorker(QObject):
-    progress = Signal(int, int, str)
-    log = Signal(str)
-    finished = Signal(object)
-    failed = Signal(str)
-
-    def __init__(
-        self,
-        local_mod_root: Path,
-        workshop_mod_root: Path,
-        appworkshop_path: Path | None,
-        primary_lang: str,
-        fallback_lang: str,
-    ) -> None:
-        super().__init__()
-        self.local_mod_root = local_mod_root
-        self.workshop_mod_root = workshop_mod_root
-        self.appworkshop_path = appworkshop_path
-        self.primary_lang = primary_lang
-        self.fallback_lang = fallback_lang
-
-    @Slot()
-    def run(self) -> None:
-        try:
-            cpu = os.cpu_count() or 4
-            max_workers = max(4, min(20, cpu * 2))
-            self.log.emit(f"Duplikat-Scan gestartet: lokal={self.local_mod_root} workshop={self.workshop_mod_root}")
-
-            self.progress.emit(0, 1, "Scanne lokale Mods...")
-            local_mods = scan_mods_parallel(
-                self.local_mod_root,
-                self.primary_lang,
-                self.fallback_lang,
-                deepl_client=None,
-                max_workers=max_workers,
-                progress_callback=lambda done, total: self.progress.emit(done, max(1, total), "Scanne lokale Mods..."),
-                resolve_dependencies=False,
-            )
-            self.log.emit(f"Lokale Mods gelesen: {len(local_mods)}")
-
-            self.progress.emit(0, 1, "Scanne Workshop-Mods...")
-            workshop_mods = scan_workshop_mods(
-                self.workshop_mod_root,
-                self.appworkshop_path,
-                self.primary_lang,
-                self.fallback_lang,
-                progress_callback=lambda done, total: self.progress.emit(
-                    done,
-                    max(1, total),
-                    "Scanne Workshop-Mods...",
-                ),
-                resolve_dependencies=False,
-            )
-            self.log.emit(f"Workshop-Mods gelesen: {len(workshop_mods)}")
-
-            self.progress.emit(0, 1, "Vergleiche Mods...")
-            matches = find_duplicate_mods(
-                local_mods,
-                workshop_mods,
-                progress_callback=lambda done, total: self.progress.emit(
-                    done,
-                    max(1, total),
-                    "Vergleiche lokale Mods mit Workshop-Mods...",
-                ),
-            )
-            self.log.emit(f"Duplikat-Scan abgeschlossen: {len(matches)} Treffer")
-            self.finished.emit(matches)
-        except Exception as exc:
-            logger.exception(
-                "DuplicateScanWorker crashed. local=%s workshop=%s",
-                self.local_mod_root,
-                self.workshop_mod_root,
-            )
-            self.failed.emit(str(exc))
-
-
-class InstallWorker(QObject):
-    progress = Signal(int, int, str)
-    log = Signal(str)
-    finished = Signal(bool)
-    failed = Signal(str)
-
+class ModInstaller:
     def __init__(
         self,
         paths: list[Path],
@@ -140,43 +41,35 @@ class InstallWorker(QObject):
         parallel_enabled: bool,
         delete_download_archives: bool,
         max_workers: int,
+        progress_callback=None,
+        log_callback=None,
     ) -> None:
-        super().__init__()
         self.paths = paths
         self.mods_root = mods_root
         self.no_mod_lua_message = no_mod_lua_message
         self.parallel_enabled = parallel_enabled
         self.delete_download_archives = delete_download_archives
         self.max_workers = max(1, max_workers)
+        self.progress_callback = progress_callback
+        self.log_callback = log_callback
         self.downloads_dir = self._resolve_downloads_dir()
 
-    @Slot()
-    def run(self) -> None:
-        try:
-            total = len(self.paths)
-            self.progress.emit(0, max(1, total), "Installiere Mods...")
-            any_success = False
-
-            if self.parallel_enabled and total > 1:
-                any_success = self._run_parallel(total)
-            else:
-                any_success = self._run_sequential(total)
-
-            self.finished.emit(any_success)
-        except Exception as exc:
-            logger.exception("InstallWorker crashed for %s inputs", len(self.paths))
-            self.failed.emit(str(exc))
+    def run(self) -> bool:
+        total = len(self.paths)
+        self._progress(0, max(1, total), "Installiere Mods...")
+        if self.parallel_enabled and total > 1:
+            return self._run_parallel(total)
+        return self._run_sequential(total)
 
     def _run_sequential(self, total: int) -> bool:
         any_success = False
         for index, path in enumerate(self.paths, start=1):
-            self.progress.emit(index - 1, total, f"Verarbeite {path.name}...")
+            self._progress(index - 1, total, f"Verarbeite {path.name}...")
             success, messages = self._process_path(path)
-            for message in messages:
-                self.log.emit(message)
+            self._log_many(messages)
             if success:
                 any_success = True
-            self.progress.emit(index, total, f"{index}/{total} abgeschlossen")
+            self._progress(index, total, f"{index}/{total} abgeschlossen")
         return any_success
 
     def _run_parallel(self, total: int) -> bool:
@@ -193,21 +86,17 @@ class InstallWorker(QObject):
                 except Exception as exc:
                     success, messages = False, [f"ERROR: {path.name}: {exc}"]
 
-                for message in messages:
-                    self.log.emit(message)
-
+                self._log_many(messages)
                 if success:
                     any_success = True
-
                 done_count += 1
-                self.progress.emit(done_count, total, f"{done_count}/{total} abgeschlossen")
+                self._progress(done_count, total, f"{done_count}/{total} abgeschlossen")
 
         return any_success
 
     def _process_path(self, path: Path) -> tuple[bool, list[str]]:
         if not path.exists():
             return False, [f"ERROR: File not found: {path}"]
-
         if path.is_file() and path.suffix.lower() in ARCHIVE_EXTENSIONS:
             return self._install_from_archive(path)
         if path.is_dir():
@@ -248,9 +137,7 @@ class InstallWorker(QObject):
         return all_ok, messages
 
     def _delete_download_archive_if_needed(self, archive_path: Path) -> tuple[bool, str]:
-        if not self.delete_download_archives:
-            return False, ""
-        if self.downloads_dir is None:
+        if not self.delete_download_archives or self.downloads_dir is None:
             return False, ""
 
         resolved_archive = archive_path.resolve()
@@ -264,6 +151,15 @@ class InstallWorker(QObject):
             return False, f"Archiv konnte nach Installation nicht geloescht werden: {archive_path.name} ({exc})"
 
         return True, f"Archiv aus Downloads geloescht: {archive_path.name}"
+
+    def _progress(self, current: int, total: int, status: str) -> None:
+        if self.progress_callback:
+            self.progress_callback(current, total, status)
+
+    def _log_many(self, messages: list[str]) -> None:
+        for message in messages:
+            if self.log_callback:
+                self.log_callback(message)
 
     @staticmethod
     def _resolve_downloads_dir() -> Path | None:
