@@ -5,12 +5,12 @@ on:
   workflow_dispatch:
     inputs:
       publish_release:
-        description: "Create and publish a GitHub release after a successful manual build"
+        description: Create and publish a GitHub release
         required: false
         default: false
         type: boolean
       version:
-        description: "Optional version for tag/release name, e.g. 1.2.3"
+        description: Optional version, for example 2.0.0
         required: false
         default: ""
         type: string
@@ -19,157 +19,36 @@ permissions:
   contents: write
 
 jobs:
-  pyinstaller:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            artifact_name: TpF2-Modmanager-windows
-            binary_name: TpF2-Modmanager.exe
-            data_sep: ";"
-            icon_path: media/icon.ico
-          - os: ubuntu-latest
-            artifact_name: TpF2-Modmanager-linux
-            binary_name: TpF2-Modmanager
-            data_sep: ":"
-            icon_path: media/icon.png
-
+  electron:
+    runs-on: windows-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-
-      - name: Install build dependencies
-        shell: pwsh
-        run: |
-          python -m pip install --upgrade pip
-
-          if (-not (Test-Path "requirements.txt")) {
-            throw "requirements.txt is missing"
-          }
-
-          python -m pip install -r requirements.txt
-
-          python -m pip install PyInstaller
-
-      - name: Build with PyInstaller
-        shell: pwsh
-        run: |
-          $dataSep = '${{ matrix.data_sep }}'
-          $iconPath = '${{ matrix.icon_path }}'
-
-          $args = @(
-            '--noconfirm'
-            '--clean'
-            '--onefile'
-            '--windowed'
-            '--name'
-            'TpF2-Modmanager'
-            '--add-data'
-            "resources${dataSep}resources"
-            '--add-data'
-            "media${dataSep}media"
-            '--collect-submodules'
-            'PIL'
-            '--collect-submodules'
-            'py7zr'
-            '--collect-submodules'
-            'rarfile'
-            '--collect-submodules'
-            'deepl'
-            'app.py'
-          )
-
-          if (Test-Path $iconPath) {
-            $args += @('--icon', $iconPath)
-          }
-
-          python -m PyInstaller @args
-
-      - name: Resolve build output
-        id: build_output
-        shell: pwsh
-        run: |
-          $expectedName = '${{ matrix.binary_name }}'
-          $match = Get-ChildItem -Path dist -Recurse -File | Where-Object { $_.Name -eq $expectedName } | Select-Object -First 1
-
-          if ($null -eq $match) {
-            Write-Host "dist contents:"
-            if (Test-Path dist) {
-              Get-ChildItem -Path dist -Recurse | ForEach-Object { $_.FullName }
-            }
-            throw "Expected build output not found: $expectedName"
-          }
-
-          "path=$($match.FullName)" >> $env:GITHUB_OUTPUT
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Set requested version
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
+        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
+      - name: Build NSIS installer
+        run: npm run dist
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ steps.build_output.outputs.path }}
+          name: TpF2-Modmanager-windows
+          path: dist-electron/TpF2-Modmanager-Setup-*.exe
           if-no-files-found: error
-
-  release:
-    needs: pyinstaller
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-
-      - name: Determine release metadata
-        id: release_meta
+      - name: Publish release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         shell: pwsh
         run: |
           $version = "${{ inputs.version }}".Trim()
-
-          if ([string]::IsNullOrWhiteSpace($version)) {
-            $version = "manual-${{ github.run_number }}"
-          }
-
+          if ([string]::IsNullOrWhiteSpace($version)) { $version = "2.0.0" }
           $tag = "v$version"
-          $releaseName = "TpF2-Modmanager $tag"
-
-          "version=$version" >> $env:GITHUB_OUTPUT
-          "tag=$tag" >> $env:GITHUB_OUTPUT
-          "release_name=$releaseName" >> $env:GITHUB_OUTPUT
-
-      - name: Create or update GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${{ steps.release_meta.outputs.tag }}"
-          title="${{ steps.release_meta.outputs.release_name }}"
-
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release edit "$tag" --title "$title"
-          else
-            gh release create "$tag" \
-              --title "$title" \
-              --notes "Automated release created from workflow run #${{ github.run_number }}."
-          fi
-
-      - name: Upload release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "${{ steps.release_meta.outputs.tag }}" \
-            "release-assets/TpF2-Modmanager-windows/TpF2-Modmanager.exe" \
-            "release-assets/TpF2-Modmanager-linux/TpF2-Modmanager" \
-            --clobber
+          $asset = (Get-ChildItem "dist-electron/TpF2-Modmanager-Setup-*.exe" | Select-Object -First 1).FullName
+          if (gh release view $tag 2>$null) { gh release upload $tag $asset --clobber }
+          else { gh release create $tag $asset --title "TpF2 Modmanager $tag" --generate-notes }

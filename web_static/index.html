@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TpF2 Modmanager</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="h-screen overflow-hidden bg-slate-50 text-slate-900 antialiased transition-colors duration-300 dark:bg-[#1a232c] dark:text-slate-100">
+    <div class="flex h-screen">
+      <aside class="app-rail">
+        <div class="drag-region h-9"></div>
+        <div class="flex items-center gap-3 px-5 pb-5">
+          <img class="h-12 w-12 rounded-xl object-contain shadow-lg" src="../media/logo.png" alt="" />
+          <div class="min-w-0">
+            <h1 class="text-lg font-semibold leading-tight">TpF2 Modmanager</h1>
+            <p class="truncate text-xs text-blue-100/70">Electron + JavaScript Core</p>
+          </div>
+        </div>
+
+        <nav class="grid gap-2 px-3">
+          <button class="rail-button active" data-view="mods" data-tooltip="Mod-Bibliothek anzeigen" data-tooltip-position="right">
+            <span class="rail-icon">▦</span>
+            <span>Bibliothek</span>
+          </button>
+          <button class="rail-button" data-view="logs" data-tooltip="System-Protokoll anzeigen" data-tooltip-position="right">
+            <span class="rail-icon">≡</span>
+            <span>Log</span>
+          </button>
+        </nav>
+
+        <div class="mx-4 mt-auto rounded-xl border border-white/10 bg-white/8 p-4 shadow-inner">
+          <div class="text-3xl font-semibold" id="modCount">0</div>
+          <div class="text-xs text-blue-100/70">geladene Mods</div>
+          <div class="mt-4 h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div id="scanPulse" class="h-full w-1/3 rounded-full bg-mint opacity-40"></div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="min-w-0 flex-1">
+        <header class="flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-6 backdrop-blur-xl dark:border-white/5 dark:bg-[#202b36]/90">
+          <div class="no-drag">
+            <div class="text-xs font-medium uppercase tracking-[.18em] text-pine dark:text-mint">Lokaler Desktop</div>
+            <h2 class="text-xl font-semibold">Mod-Bibliothek</h2>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="themeToggle" class="icon-button" data-tooltip="Farbschema wechseln" data-tooltip-position="bottom" aria-label="Darkmode umschalten">◐</button>
+            <button id="openSettings" class="icon-button" data-tooltip="Einstellungen konfigurieren" data-tooltip-position="bottom" aria-label="Einstellungen">⚙</button>
+          </div>
+        </header>
+
+        <div class="grid h-[calc(100vh-4rem)] grid-rows-[auto_auto_auto_1fr] gap-4 overflow-hidden p-5">
+          <section class="path-panel">
+            <div class="path-copy">
+              <span class="eyebrow">Mod-Quelle</span>
+              <h3>Welchen Mod-Ordner soll ich scannen?</h3>
+              <p id="pathHint">Setze hier den lokalen Transport Fever 2 Mods-Ordner. Genau dieser Pfad wird gescannt und als Installationsziel verwendet.</p>
+            </div>
+            <div class="path-controls">
+              <label>
+                <span>Mod-Ordner</span>
+                <input id="modsPath" placeholder="z.B. C:\Program Files (x86)\Steam\userdata\...\1066780\local\mods" />
+              </label>
+              <div class="button-row">
+                <button id="browseModsPath" data-tooltip="Mod-Ordner auf Festplatte suchen">Ordner waehlen</button>
+                <button id="savePath" data-tooltip="Ausgewaehlten Pfad als Standard speichern">Speichern</button>
+                <button id="scan" class="primary" data-tooltip="Mod-Ordner scannen und Liste aktualisieren">Scannen</button>
+              </div>
+              <div id="pathStatus" class="path-status warn">Kein Mod-Ordner geprueft.</div>
+            </div>
+          </section>
+
+          <section id="mainDropZone" class="main-drop-zone" data-tooltip="Mod-ZIP/RAR/7Z hierhin ziehen zum automatischen Entpacken & Installieren" data-tooltip-position="bottom">
+            <div class="drop-icon">↓</div>
+            <div class="min-w-0 flex-1">
+              <strong>Mods installieren</strong>
+              <span>ZIP/7Z/RAR oder entpackte Mod-Ordner hier auf die Hauptseite ziehen.</span>
+            </div>
+            <button id="browseMainInstallInputs" data-tooltip="Mod-Dateien/Archive auswaehlen">Dateien/Ordner waehlen</button>
+          </section>
+
+          <section id="jobPanel" class="job-panel hidden">
+            <div class="min-w-0">
+              <strong id="jobLabel">Arbeite...</strong>
+              <span id="jobMessage"></span>
+            </div>
+            <progress id="jobProgress" value="0" max="1"></progress>
+            <button id="cancelJob" class="danger hidden" data-tooltip="Aktive Aufgabe abbrechen">Abbrechen</button>
+          </section>
+
+          <section id="modsView" class="view active min-h-0">
+            <div class="section-header">
+              <div>
+                <h2>Mods</h2>
+                <p>Scannen, filtern, Details pruefen, Ordner oeffnen oder Mods entfernen.</p>
+              </div>
+              <div class="actions">
+                <input id="search" placeholder="Suche nach Name, Autor, Pfad..." data-tooltip="Filtern nach Name, Autor oder Pfad" />
+                <button id="duplicates" data-tooltip="Lokal vs Steam Workshop auf Doppelte pruefen">Duplikate scannen</button>
+              </div>
+            </div>
+
+            <div class="content-grid">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Modname</th>
+                      <th>Autor</th>
+                      <th>Version</th>
+                      <th>Pfad</th>
+                    </tr>
+                  </thead>
+                  <tbody id="modsTable"></tbody>
+                </table>
+              </div>
+              <aside id="detailPanel" class="detail-panel">
+                <div class="empty-state">
+                  <div class="empty-mark">▦</div>
+                  <h3>Keine Mod ausgewaehlt</h3>
+                  <p class="muted">Waehle eine Zeile aus, um Beschreibung, Abhaengigkeiten und Rohfelder zu sehen.</p>
+                </div>
+              </aside>
+            </div>
+          </section>
+
+          <section id="logsView" class="view min-h-0">
+            <div class="section-header">
+              <div>
+                <h2>Log</h2>
+                <p>Aktuelle Aktionen aus dieser Desktop-Session.</p>
+              </div>
+              <button id="refreshLogs" data-tooltip="Protokollliste neu laden">Aktualisieren</button>
+            </div>
+            <pre id="logs"></pre>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div id="settingsBackdrop" class="modal-backdrop"></div>
+      <section class="modal-card">
+        <div class="section-header modal-header">
+          <div>
+            <h2 id="settingsTitle">Einstellungen</h2>
+            <p>Sprache, Workshop-Pfade und Backend-Verhalten.</p>
+          </div>
+          <button id="closeSettings" class="icon-button" data-tooltip="Schliessen" data-tooltip-position="left" aria-label="Schliessen">×</button>
+        </div>
+
+        <div class="settings-grid">
+          <label data-tooltip="Sprache des Modmanagers">App-Sprache <select id="app_language"><option value="de">Deutsch</option><option value="en">English</option></select></label>
+          <label data-tooltip="Bevorzugte Sprache fuer Mod-Beschreibungen">Mod-Sprache <select id="language"><option value="de">Deutsch</option><option value="en">English</option><option value="es">Español</option><option value="it">Italiano</option></select></label>
+          <label data-tooltip="Fallback-Sprache, falls die bevorzugte Mod-Sprache fehlt">Fallback <select id="fallback_language"><option value="en">English</option><option value="de">Deutsch</option><option value="es">Español</option><option value="it">Italiano</option></select></label>
+          <label data-tooltip="Pfad zu den abonnierten Steam Workshop Mods (Ordner 1066780)">Steam Workshop Mods <span class="path-picker"><input id="workshop_mods_path" placeholder="z.B. .../workshop/content/1066780" /><button id="browseWorkshopPath" type="button" data-tooltip="Ordner auswaehlen">...</button></span></label>
+          <label data-tooltip="Pfad zur Steam ACF-Datei fuer Workshop-Konfig">appworkshop_1066780.acf <span class="path-picker"><input id="appworkshop_path" placeholder="z.B. .../steamapps/workshop/appworkshop_1066780.acf" /><button id="browseAppWorkshopPath" type="button" data-tooltip="ACF-Datei waehlen">...</button></span></label>
+          <label data-tooltip="DeepL API-Schluessel fuer automatische Mod-Uebersetzungen">DeepL API Key <input id="deepl_api_key" type="password" placeholder="DeepL Auth Key" /></label>
+          <label class="check" data-tooltip="Entpackt mehrere Mods gleichzeitig (schneller)">
+            <input id="parallel_install_enabled" type="checkbox" /> Parallele Installation
+          </label>
+          <label class="check" data-tooltip="Löscht ZIP/RAR-Archive nach der Installation vom Datenträger">
+            <input id="delete_download_archives_after_install" type="checkbox" /> Downloads nach Installation aufraeumen
+          </label>
+          <label data-tooltip="Maximale parallele Prozesse beim Mod-Entpacken">Max. Worker <input id="max_parallel_workers" type="number" min="1" max="16" /></label>
+          <label class="check" data-tooltip="Erweiterte Fehlerprotokolle aufzeichnen">
+            <input id="debug_logging_enabled" type="checkbox" /> Debug-Logging
+          </label>
+        </div>
+
+        <footer class="modal-footer">
+          <button id="cancelSettings" data-tooltip="Aenderungen verwerfen">Abbrechen</button>
+          <button id="saveSettings" class="primary" data-tooltip="Aenderungen speichern und anwenden">Speichern</button>
+        </footer>
+      </section>
+    </div>
+
+    <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
