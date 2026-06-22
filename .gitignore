@@ -6,8 +6,6 @@ dist/
 dist-electron/
 node_modules/
 app.spec
-*.spec~
 build_pyinstaller.bat
 modmanager.log
 electron-main.log
-startup-error.log

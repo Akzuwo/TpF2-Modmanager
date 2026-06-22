@@ -1,51 +1,44 @@
 # TpF2 Modmanager
 
-Electron-Desktop-App zum Verwalten von Transport Fever 2 Mods. Die Oberfläche läuft in Electron; Scannen, Installieren und Mod-Verwaltung übernimmt ein lokales Python-Backend. Es gibt keine Qt/PySide-Oberfläche mehr.
+Electron-Desktop-App zum Verwalten von Transport Fever 2 Mods. Anwendung, Mod-Parser und Dateiverwaltung laufen vollständig in JavaScript – ohne Python, PyInstaller, lokalen Webserver oder Qt.
 
 ## Funktionen
 
 - Lokale Mods und Steam-Workshop-Mods scannen
-- Mods suchen, Details und Abhängigkeiten anzeigen
-- `.zip`-, `.7z`- und `.rar`-Archive installieren
+- `mod.lua`, `strings.lua` und `strings*.json` auswerten
+- Mods suchen sowie Details und Abhängigkeiten anzeigen
+- ZIP-, 7Z- und RAR-Archive installieren
 - Doppelte lokale/Workshop-Mods erkennen
 - Mod-Ordner öffnen und Mods löschen
-- Deutsche und englische Oberfläche sowie übersetzte Mod-Texte
 
 ## Entwicklung
 
-Voraussetzungen:
-
-- Node.js 20 oder neuer
-- Python 3.10 oder neuer
+Voraussetzungen: Node.js 20 oder neuer.
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
 npm ci
 npm start
 ```
 
-`npm start` startet Electron. Electron startet seinerseits das Python-Backend auf einem freien lokalen Port. Die Konfiguration liegt im Entwicklungsmodus als `config.json` im Projektordner.
+Der Renderer läuft mit aktivierter Context Isolation und ohne Node-Integration. Alle privilegierten Aktionen gehen über die schmale API in `electron/preload.js` an die Node-Services unter `electron/backend/`.
 
-## Windows-Build
+## Test und Build
 
 ```powershell
+npm test
 .\build.ps1 2.0
 ```
 
-Das Skript installiert die Build-Abhängigkeiten, synchronisiert die Version in `package.json` und `package-lock.json` und erzeugt den NSIS-Installer `dist-electron/TpF2-Modmanager-Setup-2.0.0.exe`. Mit `-SkipInstall` kann die erneute Installation übersprungen werden. Python und Node.js werden auf dem Zielrechner nicht benötigt.
+Das Buildskript synchronisiert die Version und erzeugt den NSIS-Installer `dist-electron/TpF2-Modmanager-Setup-2.0.0.exe`. Mit `-SkipInstall` lässt sich die erneute Ausführung von `npm ci` überspringen.
 
 ## Struktur
 
-- `electron/`: Desktop-Fenster, native Dateidialoge und Prozessverwaltung
-- `web_static/`: HTML-, CSS- und JavaScript-Oberfläche
-- `web_backend/`: lokale HTTP-API
-- `helpers/`: Mod-, Archiv-, Konfigurations- und Plattformlogik
-- `app.py`: Einstiegspunkt des gebündelten Python-Backends
+- `electron/main.js`: Fenster, Protokoll- und IPC-Grenze
+- `electron/preload.js`: sichere Renderer-API
+- `electron/backend/`: Config, Lua-Parser, Scans, Archive, Jobs und Mod-Verwaltung
+- `web_static/`: HTML-, CSS- und Renderer-JavaScript
+- `test/`: Node-Testfälle mit temporären Mod-Fixtures
 
 ## English
 
-TpF2 Modmanager is an Electron desktop application for managing Transport Fever 2 mods. Electron renders the UI and starts a bundled local Python backend; Qt/PySide is no longer used.
-
-For development, install Python dependencies with `python -m pip install -r requirements.txt`, install Node dependencies with `npm ci`, and run `npm start`. Build a versioned Windows NSIS installer with `.\build.ps1 2.0`.
+TpF2 Modmanager is an Electron-only desktop application. Its UI, Lua metadata parser, archive installation, scans and file management are implemented in JavaScript; Python and Qt are not required. Run `npm ci && npm start` for development, `npm test` for tests, and `.\build.ps1 2.0` for a versioned Windows NSIS installer.

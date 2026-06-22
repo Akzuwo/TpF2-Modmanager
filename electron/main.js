@@ -1,121 +1,22 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
-const path = require("node:path");
+const { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } = require("electron");
 const fs = require("node:fs");
-const { spawn } = require("node:child_process");
-const http = require("node:http");
-const net = require("node:net");
+const path = require("node:path");
+const { pathToFileURL } = require("node:url");
+const { Backend } = require("./backend");
+const { previewBytes } = require("./backend/image");
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: "tpf2-preview", privileges: { secure: true, supportFetchAPI: true, corsEnabled: true } }
+]);
 
 let mainWindow = null;
-let backendProcess = null;
-let backendUrl = null;
-let isQuitting = false;
-
-const isDev = !app.isPackaged;
-let port = 8765;
+let backend = null;
 
 function log(message) {
-  const line = `[${new Date().toISOString()}] ${message}\n`;
-  if (isDev) {
-    console.log(line.trim());
-    return;
-  }
-  try {
-    fs.appendFileSync(path.join(app.getPath("userData"), "electron-main.log"), line, "utf8");
-  } catch {
-    // Logging must never prevent startup.
-  }
-}
-
-function backendExecutable() {
-  if (isDev) {
-    return {
-      command: "python",
-      args: ["app.py", "--port", String(port)],
-      cwd: path.resolve(__dirname, "..")
-    };
-  }
-
-  return {
-    command: path.join(process.resourcesPath, "backend", "TpF2-Modmanager-Backend.exe"),
-    args: ["--port", String(port), "--data-dir", app.getPath("userData")],
-    cwd: path.dirname(process.execPath)
-  };
-}
-
-function isPortFree(candidatePort) {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once("error", () => resolve(false));
-    server.once("listening", () => {
-      server.close(() => resolve(true));
-    });
-    server.listen(candidatePort, "127.0.0.1");
-  });
-}
-
-async function findFreePort(startPort) {
-  for (let candidate = startPort; candidate < startPort + 40; candidate += 1) {
-    if (await isPortFree(candidate)) {
-      return candidate;
-    }
-  }
-  throw new Error("Kein freier lokaler Port fuer das Python-Backend gefunden.");
-}
-
-function waitForBackend(url, timeoutMs = 18000) {
-  const started = Date.now();
-  return new Promise((resolve, reject) => {
-    const tick = () => {
-      const request = http.get(`${url}/api/config`, (response) => {
-        response.resume();
-        if (response.statusCode === 200) {
-          resolve();
-        } else {
-          retry();
-        }
-      });
-      request.on("error", retry);
-      request.setTimeout(1200, () => {
-        request.destroy();
-        retry();
-      });
-    };
-
-    const retry = () => {
-      if (Date.now() - started > timeoutMs) {
-        reject(new Error("Python-Backend konnte nicht gestartet werden."));
-        return;
-      }
-      setTimeout(tick, 300);
-    };
-
-    tick();
-  });
-}
-
-async function startBackend() {
-  port = await findFreePort(port);
-  backendUrl = `http://127.0.0.1:${port}`;
-  const backend = backendExecutable();
-  log(`starting backend: ${backend.command} ${backend.args.join(" ")} cwd=${backend.cwd}`);
-  backendProcess = spawn(backend.command, backend.args, {
-    cwd: backend.cwd,
-    windowsHide: true,
-    stdio: isDev ? "inherit" : "ignore"
-  });
-
-  backendProcess.on("exit", (code) => {
-    log(`backend exited: ${code}`);
-    if (!isQuitting && mainWindow && !mainWindow.isDestroyed() && code !== 0) {
-      mainWindow.webContents.send("backend-exit", code);
-    }
-  });
-  backendProcess.on("error", (error) => {
-    log(`backend spawn error: ${error.message}`);
-  });
-
-  await waitForBackend(backendUrl);
-  log(`backend ready: ${backendUrl}`);
+  const line = `[${new Date().toISOString()}] ${message}`;
+  if (!app.isPackaged) console.log(line);
+  try { fs.appendFileSync(path.join(app.getPath("userData"), "electron-main.log"), `${line}\n`, "utf8"); }
+  catch { /* Logging must never prevent startup. */ }
 }
 
 function createWindow() {
@@ -126,24 +27,23 @@ function createWindow() {
     minHeight: 700,
     title: "TpF2 Modmanager",
     backgroundColor: "#0f1815",
-    icon: path.resolve(__dirname, "..", "media", "icon.ico"),
+    icon: path.resolve(__dirname, "..", "media", "icon.png"),
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true
     }
   });
-
   mainWindow.once("ready-to-show", () => mainWindow.show());
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  mainWindow.on("closed", () => { mainWindow = null; });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
   });
-  mainWindow.webContents.on("did-fail-load", (_event, code, description) => {
-    log(`window failed load: ${code} ${description}`);
-  });
-  mainWindow.loadURL(backendUrl);
+  mainWindow.loadFile(path.resolve(__dirname, "..", "web_static", "index.html"));
 }
 
 async function pickPath(options) {
@@ -152,63 +52,45 @@ async function pickPath(options) {
   return result.canceled ? [] : result.filePaths;
 }
 
-app.whenReady().then(async () => {
-  try {
-    log(`electron ready. packaged=${app.isPackaged} resources=${process.resourcesPath} exe=${process.execPath}`);
-    await startBackend();
-    createWindow();
-  } catch (error) {
-    log(`startup failed: ${error.stack || error.message}`);
-    dialog.showErrorBox("TpF2 Modmanager", error.message);
-    app.quit();
-  }
-});
-
-ipcMain.handle("dialog:mods-folder", () =>
-  pickPath({
-    title: "Mod-Verzeichnis auswaehlen",
-    properties: ["openDirectory"]
-  })
-);
-
-ipcMain.handle("dialog:workshop-folder", () =>
-  pickPath({
-    title: "Steam Workshop-Modordner auswaehlen",
-    properties: ["openDirectory"]
-  })
-);
-
-ipcMain.handle("dialog:appworkshop-file", () =>
-  pickPath({
+function registerIpc() {
+  ipcMain.handle("backend:request", (_event, route, options) => {
+    if (typeof route !== "string" || !route.startsWith("/api/")) throw new Error("Ungueltiger Backend-Aufruf");
+    return backend.request(route, options || {});
+  });
+  ipcMain.handle("dialog:mods-folder", () => pickPath({ title: "Mod-Verzeichnis auswaehlen", properties: ["openDirectory"] }));
+  ipcMain.handle("dialog:workshop-folder", () => pickPath({ title: "Steam Workshop-Modordner auswaehlen", properties: ["openDirectory"] }));
+  ipcMain.handle("dialog:appworkshop-file", () => pickPath({
     title: "appworkshop_1066780.acf auswaehlen",
-    filters: [
-      { name: "Steam appworkshop", extensions: ["acf"] },
-      { name: "Alle Dateien", extensions: ["*"] }
-    ],
+    filters: [{ name: "Steam appworkshop", extensions: ["acf"] }, { name: "Alle Dateien", extensions: ["*"] }],
     properties: ["openFile"]
-  })
-);
-
-ipcMain.handle("dialog:install-inputs", () =>
-  pickPath({
+  }));
+  ipcMain.handle("dialog:install-inputs", () => pickPath({
     title: "Mods installieren",
-    filters: [
-      { name: "Archive", extensions: ["zip", "7z", "rar"] },
-      { name: "Alle Dateien", extensions: ["*"] }
-    ],
+    filters: [{ name: "Archive", extensions: ["zip", "7z", "rar"] }, { name: "Alle Dateien", extensions: ["*"] }],
     properties: ["openFile", "openDirectory", "multiSelections"]
-  })
-);
+  }));
+  ipcMain.handle("shell:open-external", (_event, url) => {
+    if (!/^https?:\/\//i.test(String(url))) throw new Error("Nur HTTP(S)-Links sind erlaubt.");
+    return shell.openExternal(url);
+  });
+}
 
-ipcMain.handle("shell:open-external", (_event, url) => shell.openExternal(url));
-
-app.on("before-quit", () => {
-  isQuitting = true;
-  if (backendProcess && !backendProcess.killed) {
-    backendProcess.kill();
-  }
-});
-
-app.on("window-all-closed", () => {
+app.whenReady().then(() => {
+  backend = new Backend(app.getPath("userData"), { info: log });
+  protocol.handle("tpf2-preview", (request) => {
+    const token = new URL(request.url).pathname.replace(/^\//, "");
+    const filePath = backend.resolvePreview(token);
+    if (!filePath || !fs.existsSync(filePath)) return new Response("Not found", { status: 404 });
+    const converted = previewBytes(filePath);
+    if (converted) return new Response(converted.body, { headers: { "Content-Type": converted.type } });
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
+  registerIpc();
+  createWindow();
+}).catch((error) => {
+  log(`startup failed: ${error.stack || error.message}`);
+  dialog.showErrorBox("TpF2 Modmanager", error.message);
   app.quit();
 });
+
+app.on("window-all-closed", () => app.quit());

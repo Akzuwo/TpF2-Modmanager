@@ -12,6 +12,7 @@ const $ = (id) => document.getElementById(id);
 const shell = window.desktopShell || null;
 
 async function api(path, options = {}) {
+  if (shell?.request) return shell.request(path, options);
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
     ...options,
@@ -212,7 +213,8 @@ function renderDetails(mod) {
       return `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(resolved)}</td><td>${escapeHtml(raw)}</td></tr>`;
     })
     .join("");
-  const preview = mod.has_preview ? `<img class="preview-image" src="/api/preview?path=${encodeURIComponent(mod.path)}" alt="">` : "";
+  const previewUrl = mod.preview_token && shell?.previewUrl ? shell.previewUrl(mod.preview_token) : "";
+  const preview = previewUrl ? `<img class="preview-image" src="${escapeHtml(previewUrl)}" alt="">` : "";
   const link = mod.link ? `<button id="openLink" data-tooltip="Steam Workshop-Seite im Browser oeffnen">Workshop/Link oeffnen</button>` : "";
   const languages = mod.available_languages?.length ? mod.available_languages.join(", ") : "-";
 

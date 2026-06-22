@@ -1,14 +1,14 @@
 {
   "name": "tpf2-modmanager-electron",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Electron desktop app for managing Transport Fever 2 mods.",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
     "build:css": "tailwindcss -i ./web_static/styles.input.css -o ./web_static/styles.css --minify",
-    "build:backend": "python -m PyInstaller backend.spec",
-    "dist": "npm run build:css && npm run build:backend && electron-builder --win nsis"
+    "test": "node --test",
+    "dist": "npm run build:css && npm test && electron-builder --win nsis"
   },
   "build": {
     "appId": "de.tpf2.modmanager",
@@ -18,13 +18,8 @@
     },
     "files": [
       "electron/**/*",
-      "media/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "dist/TpF2-Modmanager-Backend.exe",
-        "to": "backend/TpF2-Modmanager-Backend.exe"
-      }
+      "media/**/*",
+      "web_static/**/*"
     ],
     "win": {
       "icon": "media/icon.png",
@@ -44,6 +39,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
+  },
+  "dependencies": {
+    "7zip-bin": "^5.2.0"
   },
   "devDependencies": {
     "electron": "^39.2.6",

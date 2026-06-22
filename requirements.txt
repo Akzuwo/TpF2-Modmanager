@@ -1,4 +1,0 @@
-Pillow>=10,<12
-py7zr>=1.1,<2
-rarfile>=4.2,<5
-deepl>=1.18,<2

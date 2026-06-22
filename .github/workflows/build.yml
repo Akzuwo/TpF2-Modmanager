@@ -10,7 +10,7 @@ on:
         default: false
         type: boolean
       version:
-        description: Optional version, for example 1.2.3
+        description: Optional version, for example 2.0.0
         required: false
         default: ""
         type: string
@@ -22,49 +22,23 @@ jobs:
   electron:
     runs-on: windows-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
-
-      - name: Install dependencies
-        shell: pwsh
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install PyInstaller
-          npm ci
-
+      - run: npm ci
+      - run: npm test
+      - name: Set requested version
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' }}
+        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
       - name: Build NSIS installer
         run: npm run dist
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: TpF2-Modmanager-windows
           path: dist-electron/TpF2-Modmanager-Setup-*.exe
           if-no-files-found: error
-
-      - name: Determine release tag
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
-        id: release
-        shell: pwsh
-        run: |
-          $version = "${{ inputs.version }}".Trim()
-          if ([string]::IsNullOrWhiteSpace($version)) {
-            $version = "manual-${{ github.run_number }}"
-          }
-          "tag=v$version" >> $env:GITHUB_OUTPUT
-
       - name: Publish release
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
         env:
@@ -72,10 +46,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
         shell: pwsh
         run: |
-          $tag = "${{ steps.release.outputs.tag }}"
-          $asset = (Get-ChildItem "dist-electron/TpF2-Modmanager-Setup-*.exe" | Select-Object -First 1).FullName
-          if (gh release view $tag 2>$null) {
-            gh release upload $tag $asset --clobber
-          } else {
-            gh release create $tag $asset --title "TpF2 Modmanager $tag" --generate-notes
+          $version = "${{ inputs.version }}".Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           }
+          $tag = "v$version"
+          $asset = (Get-ChildItem "dist-electron/TpF2-Modmanager-Setup-*.exe" | Select-Object -First 1).FullName
+          if (gh release view $tag 2>$null) { gh release upload $tag $asset --clobber }
+          else { gh release create $tag $asset --title "TpF2 Modmanager $tag" --generate-notes }
