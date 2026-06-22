@@ -69,6 +69,32 @@ test("Lua parser resolves translations, author, version and dependencies", (t) =
   assert.deepEqual(mod.dependencies, ["base_mod_1", "track_mod_2 >= 1"]);
 });
 
+test("strings.lua parser handles key-first, named tables and extended Lua strings", (t) => {
+  const root = temporaryDirectory(t);
+  const file = path.join(root, "strings.lua");
+  fs.writeFileSync(file, `
+    --[=[ a block comment containing { braces } ]=]
+    local english = {
+      mod_name = "Stormy morning",
+      mod_desc = [=[Line one,
+Line two]=],
+    }
+    local payload = {
+      en = english,
+      mod_name = { de = "St\\195\\188rmischer Morgen", fr = "Matin orageux" },
+      mod_desc = { de = [==[Zeile eins,
+Zeile zwei]==] },
+    }
+    return payload
+  `, "utf8");
+  const parsed = parseStringsLua(file);
+  assert.equal(parsed.languages.en.mod_name, "Stormy morning");
+  assert.equal(parsed.languages.en.mod_desc, "Line one,\nLine two");
+  assert.equal(parsed.languages.de.mod_name, "Stürmischer Morgen");
+  assert.equal(parsed.languages.de.mod_desc, "Zeile eins,\nZeile zwei");
+  assert.equal(parsed.languages.fr.mod_name, "Matin orageux");
+});
+
 test("scanner resolves dependency links and preview", async (t) => {
   const root = temporaryDirectory(t);
   const base = createMod(root, "base_mod_1", `return { info = { name = "Base", minorVersion = 1 } }`);

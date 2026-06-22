@@ -176,6 +176,7 @@ function renderMods() {
       <td class="path">${escapeHtml(mod.path || "-")}</td>
     `;
     row.addEventListener("click", () => selectMod(mod.path));
+    row.addEventListener("dblclick", () => openDetailPage(mod));
     tbody.appendChild(row);
   }
 }
@@ -187,17 +188,13 @@ function selectMod(path) {
   renderDetails(mod);
 }
 
-function renderDetails(mod) {
-  const panel = $("detailPanel");
-  if (!mod) {
-    panel.innerHTML = `
+function detailMarkup(mod, fullPage = false) {
+  if (!mod) return `
       <div class="empty-state">
         <div class="empty-mark">▦</div>
         <h3>Keine Mod ausgewaehlt</h3>
         <p class="muted">Waehle eine Zeile aus, um Beschreibung, Abhaengigkeiten und Rohfelder zu sehen.</p>
       </div>`;
-    return;
-  }
 
   const deps = mod.dependency_links?.length
     ? mod.dependency_links
@@ -215,37 +212,73 @@ function renderDetails(mod) {
     .join("");
   const previewUrl = mod.preview_token && shell?.previewUrl ? shell.previewUrl(mod.preview_token) : "";
   const preview = previewUrl ? `<img class="preview-image" src="${escapeHtml(previewUrl)}" alt="">` : "";
-  const link = mod.link ? `<button id="openLink" data-tooltip="Steam Workshop-Seite im Browser oeffnen">Workshop/Link oeffnen</button>` : "";
+  const link = mod.link ? `<button data-detail-action="link" data-tooltip="Steam Workshop-Seite im Browser oeffnen">Workshop/Link oeffnen</button>` : "";
   const languages = mod.available_languages?.length ? mod.available_languages.join(", ") : "-";
+  const expand = fullPage ? "" : `<button data-detail-action="expand" class="primary" data-tooltip="Details als eigene Seite im ganzen Fenster anzeigen">Ganzseitig anzeigen</button>`;
 
-  panel.innerHTML = `
-    ${preview}
-    <h3>${escapeHtml(mod.name || "-")}</h3>
-    <div class="detail-actions">
-      <button id="openSelected" data-tooltip="Mod-Ordner im Datei-Explorer oeffnen">Ordner oeffnen</button>
-      ${link}
-      <button id="deleteSelected" class="danger" data-tooltip="Diese Mod von der Festplatte loeschen">Loeschen</button>
-    </div>
-    <dl>
-      <dt>Autor</dt><dd>${escapeHtml(mod.author || "-")}</dd>
-      <dt>Version</dt><dd>${escapeHtml(mod.version || "-")}</dd>
-      <dt>Pfad</dt><dd>${escapeHtml(mod.path || "-")}</dd>
-      <dt>Beschreibung</dt><dd>${escapeHtml(mod.description || "-")}</dd>
-      <dt>Uebersetzung</dt><dd>${escapeHtml(mod.translation_notice || mod.deepl_error || "-")}</dd>
-      <dt>Sprachen</dt><dd>${escapeHtml(languages)} | aktiv: ${escapeHtml(mod.effective_language || "-")}</dd>
-      <dt>Dependencies</dt><dd>${deps}</dd>
-      <dt>Wird benoetigt von</dt><dd>${requiredBy}</dd>
-    </dl>
-    <div class="field-table">
-      <table>
-        <thead><tr><th>Feld</th><th>Wert</th><th>Rohwert</th></tr></thead>
-        <tbody>${fieldRows || `<tr><td colspan="3">Keine Rohfelder verfuegbar</td></tr>`}</tbody>
-      </table>
-    </div>
+  return `
+    <article class="detail-content ${fullPage ? "detail-content-full" : ""}">
+      <div class="detail-hero">
+        ${preview}
+        <h3>${escapeHtml(mod.name || "-")}</h3>
+        <div class="detail-actions">
+          ${expand}
+          <button data-detail-action="open" data-tooltip="Mod-Ordner im Datei-Explorer oeffnen">Ordner oeffnen</button>
+          ${link}
+          <button data-detail-action="delete" class="danger" data-tooltip="Diese Mod von der Festplatte loeschen">Loeschen</button>
+        </div>
+      </div>
+      <div class="detail-data">
+        <dl>
+          <dt>Autor</dt><dd>${escapeHtml(mod.author || "-")}</dd>
+          <dt>Version</dt><dd>${escapeHtml(mod.version || "-")}</dd>
+          <dt>Pfad</dt><dd>${escapeHtml(mod.path || "-")}</dd>
+          <dt>Beschreibung</dt><dd>${escapeHtml(mod.description || "-")}</dd>
+          <dt>Uebersetzung</dt><dd>${escapeHtml(mod.translation_notice || mod.deepl_error || "-")}</dd>
+          <dt>Sprachen</dt><dd>${escapeHtml(languages)} | aktiv: ${escapeHtml(mod.effective_language || "-")}</dd>
+          <dt>Dependencies</dt><dd>${deps}</dd>
+          <dt>Wird benoetigt von</dt><dd>${requiredBy}</dd>
+        </dl>
+        <div class="field-table">
+          <table>
+            <thead><tr><th>Feld</th><th>Wert</th><th>Rohwert</th></tr></thead>
+            <tbody>${fieldRows || `<tr><td colspan="3">Keine Rohfelder verfuegbar</td></tr>`}</tbody>
+          </table>
+        </div>
+      </div>
+    </article>
   `;
-  $("openSelected").addEventListener("click", () => openPath(mod.path));
-  if ($("openLink")) $("openLink").addEventListener("click", () => openExternal(mod.link));
-  $("deleteSelected").addEventListener("click", () => deleteMod(mod));
+}
+
+function bindDetailActions(container, mod) {
+  container.querySelector('[data-detail-action="open"]')?.addEventListener("click", () => openPath(mod.path));
+  container.querySelector('[data-detail-action="link"]')?.addEventListener("click", () => openExternal(mod.link));
+  container.querySelector('[data-detail-action="expand"]')?.addEventListener("click", () => openDetailPage(mod));
+  container.querySelector('[data-detail-action="delete"]')?.addEventListener("click", runAction(async () => {
+    await deleteMod(mod);
+    closeDetailPage();
+  }));
+}
+
+function renderDetails(mod) {
+  const panel = $("detailPanel");
+  panel.innerHTML = detailMarkup(mod);
+  if (mod) bindDetailActions(panel, mod);
+}
+
+function openDetailPage(mod = state.mods.find((item) => item.path === state.selectedPath)) {
+  if (!mod) return;
+  $("detailPageTitle").textContent = mod.name || "Detailansicht";
+  const content = $("detailPageContent");
+  content.innerHTML = detailMarkup(mod, true);
+  bindDetailActions(content, mod);
+  $("detailPage").classList.remove("hidden");
+  $("closeDetailPage").focus();
+}
+
+function closeDetailPage() {
+  $("detailPage").classList.add("hidden");
+  $("detailPageContent").textContent = "";
 }
 
 async function refreshMods() {
@@ -483,8 +516,62 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function initTooltips() {
+  const tooltip = $("floatingTooltip");
+  let activeTarget = null;
+  let showTimer = null;
+
+  const hide = () => {
+    window.clearTimeout(showTimer);
+    activeTarget = null;
+    tooltip.classList.remove("visible");
+  };
+
+  const position = (target) => {
+    const rect = target.getBoundingClientRect();
+    const tip = tooltip.getBoundingClientRect();
+    const placement = target.dataset.tooltipPosition || "top";
+    const gap = 10;
+    let left = rect.left + rect.width / 2 - tip.width / 2;
+    let top = rect.top - tip.height - gap;
+    if (placement === "bottom") top = rect.bottom + gap;
+    if (placement === "left") {
+      left = rect.left - tip.width - gap;
+      top = rect.top + rect.height / 2 - tip.height / 2;
+    }
+    if (placement === "right") {
+      left = rect.right + gap;
+      top = rect.top + rect.height / 2 - tip.height / 2;
+    }
+    tooltip.style.left = `${Math.max(8, Math.min(left, window.innerWidth - tip.width - 8))}px`;
+    tooltip.style.top = `${Math.max(8, Math.min(top, window.innerHeight - tip.height - 8))}px`;
+  };
+
+  const show = (target) => {
+    if (!target?.dataset.tooltip) return;
+    window.clearTimeout(showTimer);
+    activeTarget = target;
+    showTimer = window.setTimeout(() => {
+      if (activeTarget !== target) return;
+      tooltip.textContent = target.dataset.tooltip;
+      tooltip.classList.add("visible");
+      position(target);
+    }, 220);
+  };
+
+  document.addEventListener("pointerover", (event) => show(event.target.closest?.("[data-tooltip]")));
+  document.addEventListener("pointerout", (event) => {
+    if (activeTarget && !activeTarget.contains(event.relatedTarget)) hide();
+  });
+  document.addEventListener("focusin", (event) => show(event.target.closest?.("[data-tooltip]")));
+  document.addEventListener("focusout", hide);
+  document.addEventListener("scroll", hide, true);
+  window.addEventListener("resize", hide);
+}
+
 async function init() {
   initTheme();
+  initTooltips();
   document.querySelectorAll(".rail-button").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
   });
@@ -495,8 +582,12 @@ async function init() {
   $("closeSettings").addEventListener("click", closeSettingsModal);
   $("cancelSettings").addEventListener("click", closeSettingsModal);
   $("settingsBackdrop").addEventListener("click", closeSettingsModal);
+  $("closeDetailPage").addEventListener("click", closeDetailPage);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeSettingsModal();
+    if (event.key === "Escape") {
+      if (!$("detailPage").classList.contains("hidden")) closeDetailPage();
+      else closeSettingsModal();
+    }
   });
   $("browseModsPath").addEventListener("click", runAction(async () => {
     const path = await pickFirst("pickModsFolder");

@@ -6,7 +6,7 @@
     <title>TpF2 Modmanager</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body class="h-screen overflow-hidden bg-slate-50 text-slate-900 antialiased transition-colors duration-300 dark:bg-[#1a232c] dark:text-slate-100">
+  <body class="app-body h-screen overflow-hidden antialiased transition-colors duration-300">
     <div class="flex h-screen">
       <aside class="app-rail">
         <div class="drag-region h-9"></div>
@@ -102,6 +102,13 @@
             </div>
 
             <div class="content-grid">
+              <aside id="detailPanel" class="detail-panel">
+                <div class="empty-state">
+                  <div class="empty-mark">▦</div>
+                  <h3>Keine Mod ausgewaehlt</h3>
+                  <p class="muted">Waehle eine Zeile aus, um Beschreibung, Abhaengigkeiten und Rohfelder zu sehen.</p>
+                </div>
+              </aside>
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -115,13 +122,6 @@
                   <tbody id="modsTable"></tbody>
                 </table>
               </div>
-              <aside id="detailPanel" class="detail-panel">
-                <div class="empty-state">
-                  <div class="empty-mark">▦</div>
-                  <h3>Keine Mod ausgewaehlt</h3>
-                  <p class="muted">Waehle eine Zeile aus, um Beschreibung, Abhaengigkeiten und Rohfelder zu sehen.</p>
-                </div>
-              </aside>
             </div>
           </section>
 
@@ -138,6 +138,17 @@
         </div>
       </main>
     </div>
+
+    <section id="detailPage" class="detail-page hidden" aria-labelledby="detailPageTitle">
+      <header class="detail-page-header">
+        <button id="closeDetailPage" class="detail-back">← Zurueck</button>
+        <div>
+          <span class="eyebrow">Mod-Details</span>
+          <h2 id="detailPageTitle">Detailansicht</h2>
+        </div>
+      </header>
+      <div id="detailPageContent" class="detail-page-content"></div>
+    </section>
 
     <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
       <div id="settingsBackdrop" class="modal-backdrop"></div>
@@ -177,6 +188,7 @@
     </div>
 
     <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
+    <div id="floatingTooltip" class="floating-tooltip" role="tooltip"></div>
     <script src="./app.js"></script>
   </body>
 </html>

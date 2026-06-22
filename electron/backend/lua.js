@@ -20,12 +20,12 @@ function extractBalancedBlock(text, openIndex) {
   let depth = 0;
   let quote = "";
   let escaped = false;
-  let longString = false;
+  let longClose = "";
   for (let index = openIndex; index < text.length; index += 1) {
     const char = text[index];
     const next = text[index + 1] || "";
-    if (longString) {
-      if (char === "]" && next === "]") { longString = false; index += 1; }
+    if (longClose) {
+      if (text.startsWith(longClose, index)) { index += longClose.length - 1; longClose = ""; }
       continue;
     }
     if (quote) {
@@ -34,7 +34,8 @@ function extractBalancedBlock(text, openIndex) {
       else if (char === quote) quote = "";
       continue;
     }
-    if (char === "[" && next === "[") { longString = true; index += 1; continue; }
+    const longOpen = text.slice(index).match(/^\[(=*)\[/);
+    if (longOpen) { longClose = `]${longOpen[1]}]`; index += longOpen[0].length - 1; continue; }
     if (char === '"' || char === "'") { quote = char; continue; }
     if (char === "{") depth += 1;
     else if (char === "}" && --depth === 0) return text.slice(openIndex, index + 1);
@@ -54,17 +55,21 @@ function splitTopLevel(tableText) {
   let depth = 0;
   let quote = "";
   let escaped = false;
-  let longString = false;
+  let longClose = "";
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
     const next = text[index + 1] || "";
-    if (!quote && !longString && char === "-" && next === "-") {
+    if (!quote && !longClose && char === "-" && next === "-") {
       while (index < text.length && text[index] !== "\n") index += 1;
       continue;
     }
     current += char;
-    if (longString) {
-      if (char === "]" && next === "]") { current += next; longString = false; index += 1; }
+    if (longClose) {
+      if (text.startsWith(longClose, index)) {
+        current += longClose.slice(1);
+        index += longClose.length - 1;
+        longClose = "";
+      }
       continue;
     }
     if (quote) {
@@ -73,7 +78,13 @@ function splitTopLevel(tableText) {
       else if (char === quote) quote = "";
       continue;
     }
-    if (char === "[" && next === "[") { current += next; longString = true; index += 1; continue; }
+    const longOpen = text.slice(index).match(/^\[(=*)\[/);
+    if (longOpen) {
+      current += longOpen[0].slice(1);
+      longClose = `]${longOpen[1]}]`;
+      index += longOpen[0].length - 1;
+      continue;
+    }
     if (char === '"' || char === "'") { quote = char; continue; }
     if ("{([".includes(char)) depth += 1;
     else if ("})]".includes(char)) depth = Math.max(0, depth - 1);
@@ -88,7 +99,14 @@ function splitTopLevel(tableText) {
 }
 
 function unescapeLua(value) {
-  return value.replace(/\\n/g, "\n").replace(/\\t/g, "\t")
+  return value
+    .replace(/(?:\\\d{1,3})+/g, (sequence) => {
+      const bytes = [...sequence.matchAll(/\\(\d{1,3})/g)].map((match) => Math.min(255, Number(match[1])));
+      return Buffer.from(bytes).toString("utf8");
+    })
+    .replace(/\\x([0-9a-f]{2})/gi, (_match, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/\\z\s*/g, "")
+    .replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t")
     .replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, "\\");
 }
 
@@ -128,8 +146,8 @@ function evaluate(expression, variables = {}) {
   if (doubleQuoted) return unescapeLua(doubleQuoted[1]);
   const singleQuoted = value.match(/^'((?:[^'\\]|\\.)*)'$/s);
   if (singleQuoted) return unescapeLua(singleQuoted[1]);
-  const long = value.match(/^\[\[([\s\S]*?)\]\]$/);
-  if (long) return long[1];
+  const long = value.match(/^\[(=*)\[([\s\S]*?)\]\1\]$/);
+  if (long) return long[2];
   const parts = splitConcat(value);
   if (parts.length > 1) {
     const resolved = parts.map((part) => evaluate(part, variables));
@@ -149,11 +167,26 @@ function parseEntry(entry) {
 
 function parseVariables(text) {
   const variables = {};
-  for (const line of text.split(/[\n;]/)) {
-    const match = line.match(/^\s*(?:local\s+)?([A-Za-z_]\w*)\s*=\s*(.+)$/);
-    if (!match) continue;
-    const value = evaluate(match[2], variables);
-    if (value !== null) variables[match[1]] = value;
+  let braceDepth = 0;
+  for (const line of text.split(/\n/)) {
+    if (braceDepth === 0) {
+      const match = line.match(/^\s*(?:local\s+)?([A-Za-z_]\w*)\s*=\s*([^;]+?)\s*;?\s*$/);
+      if (match) {
+        const value = evaluate(match[2], variables);
+        if (value !== null) variables[match[1]] = value;
+      }
+    }
+    let quote = "";
+    let escaped = false;
+    for (const char of line) {
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === quote) quote = "";
+      } else if (char === '"' || char === "'") quote = char;
+      else if (char === "{") braceDepth += 1;
+      else if (char === "}") braceDepth = Math.max(0, braceDepth - 1);
+    }
   }
   return variables;
 }
@@ -165,7 +198,7 @@ function normalizeLanguage(value) {
 
 function isLanguage(value) {
   const normalized = normalizeLanguage(value);
-  return Object.hasOwn(LANG_ALIASES, normalized) || /^[a-z]{2,3}(?:_[a-z0-9]{2,8})?$/.test(normalized);
+  return Object.hasOwn(LANG_ALIASES, normalized) || /^[a-z]{2}(?:_[a-z]{2})?$/.test(normalized);
 }
 
 function parseStringTable(table, variables) {
@@ -180,22 +213,42 @@ function parseStringTable(table, variables) {
 }
 
 function parseStringsLua(filePath) {
-  const text = readText(filePath);
+  const text = readText(filePath).replace(/--\[(=*)\[[\s\S]*?\]\1\]/g, "");
   const returnMatch = /\breturn\s*\{/.exec(text);
   const namedReturn = /\breturn\s+([A-Za-z_]\w*)/.exec(text);
   const preambleEnd = returnMatch?.index ?? namedReturn?.index ?? text.length;
   const variables = parseVariables(text.slice(0, preambleEnd));
   let table = extractTableAfter(text, /\breturn\s*\{/);
   if (!table && namedReturn) table = extractTableAfter(text, new RegExp(`\\b(?:local\\s+)?${namedReturn[1]}\\s*=\\s*\\{`));
+  const tableVariables = {};
+  for (const match of text.matchAll(/\b(?:local\s+)?([A-Za-z_]\w*)\s*=\s*\{/g)) {
+    tableVariables[match[1]] = extractBalancedBlock(text, match.index + match[0].lastIndexOf("{"));
+  }
   const languages = {};
   const topLevel = { ...variables };
   for (const entry of splitTopLevel(table)) {
     const [keyExpr, valueExpr] = parseEntry(entry);
     const key = evaluate(keyExpr, variables);
     if (key === null || valueExpr === null) continue;
-    if (valueExpr.trim().startsWith("{") && isLanguage(key)) {
+    const nestedTable = valueExpr.trim().startsWith("{")
+      ? valueExpr.trim()
+      : tableVariables[valueExpr.trim()] || "";
+    if (nestedTable && isLanguage(key)) {
       const language = normalizeLanguage(key);
-      languages[language] = { ...(languages[language] || {}), ...parseStringTable(valueExpr, variables) };
+      languages[language] = { ...(languages[language] || {}), ...parseStringTable(nestedTable, variables) };
+    } else if (nestedTable) {
+      const localizedValues = parseStringTable(nestedTable, variables);
+      let foundLanguage = false;
+      for (const [languageKey, localizedValue] of Object.entries(localizedValues)) {
+        if (!isLanguage(languageKey)) continue;
+        const language = normalizeLanguage(languageKey);
+        languages[language] = { ...(languages[language] || {}), [String(key)]: localizedValue };
+        foundLanguage = true;
+      }
+      if (!foundLanguage) {
+        const fallbackValue = evaluate(valueExpr, variables);
+        if (fallbackValue !== null) topLevel[key] = fallbackValue;
+      }
     } else {
       const value = evaluate(valueExpr, variables);
       if (value !== null) topLevel[key] = value;
