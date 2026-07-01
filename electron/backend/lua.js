@@ -302,7 +302,10 @@ function loadTranslations(modDir, primaryLanguage, fallbackLanguage) {
   const fallback = normalizeLanguage(fallbackLanguage);
   const selected = [primary, fallback, "en", ...available].find((item) => available.includes(item)) || "";
   return {
-    map: { ...topLevel, ...(selected ? languages[selected] : {}), ...topLevel },
+    // A language-specific value is more precise than a generic top-level
+    // fallback. This also keeps repeated placeholders from resolving to an
+    // unrelated fallback that happened to be parsed later in the file.
+    map: { ...topLevel, ...(selected ? languages[selected] : {}) },
     available_languages: available,
     effective_language: selected,
     namespace: path.basename(modDir)

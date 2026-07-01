@@ -439,7 +439,26 @@
   }
 
   .field-table table {
-    @apply text-xs;
+    @apply w-full table-fixed text-xs;
+  }
+
+  .field-table th,
+  .field-table td {
+    @apply whitespace-normal align-top;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .field-table th:first-child,
+  .field-table td:first-child {
+    width: 20%;
+  }
+
+  .field-table th:nth-child(2),
+  .field-table td:nth-child(2),
+  .field-table th:nth-child(3),
+  .field-table td:nth-child(3) {
+    width: 40%;
   }
 
   pre {

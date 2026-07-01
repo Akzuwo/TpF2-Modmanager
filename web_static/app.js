@@ -207,7 +207,11 @@ function detailMarkup(mod, fullPage = false) {
     .map((key) => {
       const resolved = mod.resolved_fields?.[key] ?? "";
       const raw = mod.raw_fields?.[key] ?? "";
-      return `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(resolved)}</td><td>${escapeHtml(raw)}</td></tr>`;
+      return `<tr>
+        <td title="${escapeHtml(key)}">${escapeHtml(key)}</td>
+        <td title="${escapeHtml(resolved)}">${escapeHtml(resolved)}</td>
+        <td title="${escapeHtml(raw)}">${escapeHtml(raw)}</td>
+      </tr>`;
     })
     .join("");
   const previewUrl = mod.preview_token && shell?.previewUrl ? shell.previewUrl(mod.preview_token) : "";

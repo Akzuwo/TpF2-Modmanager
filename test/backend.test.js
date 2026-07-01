@@ -95,6 +95,27 @@ Zeile zwei]==] },
   assert.equal(parsed.languages.fr.mod_name, "Matin orageux");
 });
 
+test("language-specific strings win when a placeholder occurs multiple times", (t) => {
+  const root = temporaryDirectory(t);
+  const directory = createMod(root, "duplicate_placeholder_1", `
+    function data()
+      return { info = { name = _("mod_name") } }
+    end
+  `, `
+    local shared = "Unrelated fallback"
+    return {
+      mod_name = shared,
+      en = { mod_name = "Correct English name" },
+      de = { mod_name = "Korrekter deutscher Name" },
+    }
+  `);
+
+  const german = parseModLua(path.join(directory, "mod.lua"), "de", "en");
+  const english = parseModLua(path.join(directory, "mod.lua"), "en", "de");
+  assert.equal(german.name, "Korrekter deutscher Name");
+  assert.equal(english.name, "Correct English name");
+});
+
 test("scanner resolves dependency links and preview", async (t) => {
   const root = temporaryDirectory(t);
   const base = createMod(root, "base_mod_1", `return { info = { name = "Base", minorVersion = 1 } }`);
