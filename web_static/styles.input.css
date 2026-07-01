@@ -224,6 +224,10 @@
     @apply grid grid-cols-[1fr_320px_auto] items-center gap-4 p-4 animate-fade-slide;
   }
 
+  .floating-job-panel {
+    @apply fixed bottom-5 right-5 z-[45] w-[min(760px,calc(100vw-2.5rem))] shadow-2xl;
+  }
+
   .job-panel span {
     @apply ml-2 text-sm text-[rgb(var(--muted))];
   }
@@ -487,6 +491,18 @@
 
   .modal-card {
     @apply relative max-h-[88vh] w-[min(980px,100%)] overflow-auto rounded-2xl border border-[rgb(var(--line))] bg-[rgb(var(--panel))] p-4 shadow-2xl animate-modal-pop;
+  }
+
+  .install-modal-card {
+    @apply w-[min(720px,100%)];
+  }
+
+  .install-drop-zone {
+    @apply min-h-64 flex-col justify-center text-center;
+  }
+
+  .install-drop-zone > div {
+    @apply flex-none;
   }
 
   .modal-header {

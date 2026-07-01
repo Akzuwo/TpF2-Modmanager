@@ -88,6 +88,15 @@ function closeSettingsModal() {
   $("settingsModal").classList.add("hidden");
 }
 
+function openInstallModal() {
+  $("installModal").classList.remove("hidden");
+  $("closeInstallModal").focus();
+}
+
+function closeInstallModal() {
+  $("installModal").classList.add("hidden");
+}
+
 function setConfigForm(config) {
   state.config = config;
   $("modsPath").value = config.mods_path || "";
@@ -489,6 +498,7 @@ async function installPaths(paths) {
     return;
   }
   await startJob("/api/install", { paths });
+  closeInstallModal();
 }
 
 function bindDropZone(dropZone, onPaths) {
@@ -596,6 +606,9 @@ async function init() {
     });
   }
   $("openSettings").addEventListener("click", () => openSettingsModal(false));
+  $("openInstallModal").addEventListener("click", openInstallModal);
+  $("closeInstallModal").addEventListener("click", closeInstallModal);
+  $("installBackdrop").addEventListener("click", closeInstallModal);
   $("closeSettings").addEventListener("click", closeSettingsModal);
   $("cancelSettings").addEventListener("click", closeSettingsModal);
   $("settingsBackdrop").addEventListener("click", closeSettingsModal);
@@ -603,6 +616,7 @@ async function init() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       if (!$("detailPage").classList.contains("hidden")) closeDetailPage();
+      else if (!$("installModal").classList.contains("hidden")) closeInstallModal();
       else closeSettingsModal();
     }
   });

@@ -45,31 +45,14 @@
             <h2 class="text-xl font-semibold">Mod-Bibliothek</h2>
           </div>
           <div class="flex items-center gap-2">
+            <button id="openInstallModal" class="primary" data-tooltip="Archive oder Mod-Ordner installieren" data-tooltip-position="bottom">＋ Mods installieren</button>
             <button id="themeToggle" class="icon-button hidden" data-tooltip="Darkmode ist vorübergehend deaktiviert" data-tooltip-position="bottom" aria-label="Darkmode umschalten" disabled>◐</button>
             <button id="openSettings" class="icon-button" data-tooltip="Einstellungen konfigurieren" data-tooltip-position="bottom" aria-label="Einstellungen">⚙</button>
           </div>
         </header>
 
-        <div class="grid h-[calc(100vh-4rem)] grid-rows-[auto_auto_1fr] gap-4 overflow-hidden p-5">
-          <section id="mainDropZone" class="main-drop-zone" data-tooltip="Mod-ZIP/RAR/7Z hierhin ziehen zum automatischen Entpacken & Installieren" data-tooltip-position="bottom">
-            <div class="drop-icon">↓</div>
-            <div class="min-w-0 flex-1">
-              <strong>Mods installieren</strong>
-              <span>ZIP/7Z/RAR oder entpackte Mod-Ordner hier auf die Hauptseite ziehen.</span>
-            </div>
-            <button id="browseMainInstallInputs" data-tooltip="Mod-Dateien/Archive auswaehlen">Dateien/Ordner waehlen</button>
-          </section>
-
-          <section id="jobPanel" class="job-panel hidden">
-            <div class="min-w-0">
-              <strong id="jobLabel">Arbeite...</strong>
-              <span id="jobMessage"></span>
-            </div>
-            <progress id="jobProgress" value="0" max="1"></progress>
-            <button id="cancelJob" class="danger hidden" data-tooltip="Aktive Aufgabe abbrechen">Abbrechen</button>
-          </section>
-
-          <section id="modsView" class="view active min-h-0">
+        <div class="h-[calc(100vh-4rem)] overflow-hidden p-5">
+          <section id="modsView" class="view active h-full min-h-0">
             <div class="section-header">
               <div>
                 <h2>Mods</h2>
@@ -105,7 +88,7 @@
             </div>
           </section>
 
-          <section id="logsView" class="view min-h-0">
+          <section id="logsView" class="view h-full min-h-0">
             <div class="section-header">
               <div>
                 <h2>Log</h2>
@@ -119,6 +102,15 @@
       </main>
     </div>
 
+    <section id="jobPanel" class="job-panel floating-job-panel hidden">
+      <div class="min-w-0">
+        <strong id="jobLabel">Arbeite...</strong>
+        <span id="jobMessage"></span>
+      </div>
+      <progress id="jobProgress" value="0" max="1"></progress>
+      <button id="cancelJob" class="danger hidden" data-tooltip="Aktive Aufgabe abbrechen">Abbrechen</button>
+    </section>
+
     <section id="detailPage" class="detail-page hidden" aria-labelledby="detailPageTitle">
       <header class="detail-page-header">
         <button id="closeDetailPage" class="detail-back">← Zurueck</button>
@@ -129,6 +121,28 @@
       </header>
       <div id="detailPageContent" class="detail-page-content"></div>
     </section>
+
+    <div id="installModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="installModalTitle">
+      <div id="installBackdrop" class="modal-backdrop"></div>
+      <section class="modal-card install-modal-card">
+        <div class="section-header modal-header">
+          <div>
+            <span class="eyebrow">Lokale Installation</span>
+            <h2 id="installModalTitle">Mods installieren</h2>
+            <p>Ziehe Archive oder entpackte Mod-Ordner in das Feld.</p>
+          </div>
+          <button id="closeInstallModal" class="icon-button" data-tooltip="Schliessen" data-tooltip-position="left" aria-label="Schliessen">×</button>
+        </div>
+        <section id="mainDropZone" class="main-drop-zone install-drop-zone" data-tooltip="ZIP, 7Z, RAR oder Mod-Ordner hier ablegen" data-tooltip-position="bottom">
+          <div class="drop-icon">↓</div>
+          <div>
+            <strong>Dateien hier ablegen</strong>
+            <span>ZIP/7Z/RAR oder entpackte Mod-Ordner werden automatisch verarbeitet.</span>
+          </div>
+          <button id="browseMainInstallInputs" class="primary" data-tooltip="Mod-Dateien oder Ordner auswaehlen">Dateien/Ordner waehlen</button>
+        </section>
+      </section>
+    </div>
 
     <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
       <div id="settingsBackdrop" class="modal-backdrop"></div>
