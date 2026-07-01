@@ -4,6 +4,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { Backend } = require("./backend");
 const { previewBytes } = require("./backend/image");
+const { autoUpdater } = require("electron-updater");
 
 protocol.registerSchemesAsPrivileged([
   { scheme: "tpf2-preview", privileges: { secure: true, supportFetchAPI: true, corsEnabled: true } }
@@ -11,6 +12,7 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow = null;
 let backend = null;
+let updateDownloadStarted = false;
 
 function log(message) {
   const line = `[${new Date().toISOString()}] ${message}`;
@@ -44,6 +46,60 @@ function createWindow() {
     return { action: "deny" };
   });
   mainWindow.loadFile(path.resolve(__dirname, "..", "web_static", "index.html"));
+}
+
+function configureAutoUpdater() {
+  if (!app.isPackaged) {
+    log("update check skipped in development mode");
+    return;
+  }
+
+  autoUpdater.logger = { info: log, warn: log, error: log, debug: log };
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on("update-available", async (info) => {
+    if (!mainWindow || updateDownloadStarted) return;
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Update verfügbar",
+      message: `TpF2 Modmanager ${info.version} ist verfügbar.`,
+      detail: "Soll das Update jetzt heruntergeladen und automatisch installiert werden?",
+      buttons: ["Ja, jetzt aktualisieren", "Nein"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    });
+    if (result.response !== 0) return;
+
+    updateDownloadStarted = true;
+    log(`downloading update ${info.version}`);
+    autoUpdater.downloadUpdate().catch((error) => {
+      updateDownloadStarted = false;
+      log(`update download failed: ${error.stack || error.message}`);
+      if (mainWindow) dialog.showErrorBox("Update fehlgeschlagen", "Das Update konnte nicht heruntergeladen werden. Bitte versuche es später erneut.");
+    });
+  });
+
+  autoUpdater.on("download-progress", ({ percent }) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(percent / 100);
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    log(`update ${info.version} downloaded; starting installer`);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(-1);
+    autoUpdater.quitAndInstall(true, true);
+  });
+
+  autoUpdater.on("update-not-available", () => log("application is up to date"));
+  autoUpdater.on("error", (error) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(-1);
+    log(`update error: ${error.stack || error.message}`);
+  });
+
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((error) => log(`update check failed: ${error.stack || error.message}`));
+  }, 1500);
 }
 
 async function pickPath(options) {
@@ -87,6 +143,7 @@ app.whenReady().then(() => {
   });
   registerIpc();
   createWindow();
+  configureAutoUpdater();
 }).catch((error) => {
   log(`startup failed: ${error.stack || error.message}`);
   dialog.showErrorBox("TpF2 Modmanager", error.message);

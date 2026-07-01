@@ -37,7 +37,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: TpF2-Modmanager-windows
-          path: dist-electron/TpF2-Modmanager-Setup-*.exe
+          path: |
+            dist-electron/TpF2-Modmanager-Setup-*.exe
+            dist-electron/TpF2-Modmanager-Setup-*.exe.blockmap
+            dist-electron/latest.yml
           if-no-files-found: error
       - name: Publish release
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
@@ -51,6 +54,10 @@ jobs:
             $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           }
           $tag = "v$version"
-          $asset = (Get-ChildItem "dist-electron/TpF2-Modmanager-Setup-*.exe" | Select-Object -First 1).FullName
-          if (gh release view $tag 2>$null) { gh release upload $tag $asset --clobber }
-          else { gh release create $tag $asset --title "TpF2 Modmanager $tag" --generate-notes }
+          $assets = @(
+            (Get-ChildItem "dist-electron/TpF2-Modmanager-Setup-*.exe" | Select-Object -First 1).FullName
+            (Get-ChildItem "dist-electron/TpF2-Modmanager-Setup-*.exe.blockmap" | Select-Object -First 1).FullName
+            (Resolve-Path "dist-electron/latest.yml").Path
+          )
+          if (gh release view $tag 2>$null) { gh release upload $tag @assets --clobber }
+          else { gh release create $tag @assets --title "TpF2 Modmanager $tag" --generate-notes }

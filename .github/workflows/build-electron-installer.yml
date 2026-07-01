@@ -39,6 +39,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TpF2-Modmanager-Windows-Installer
-          path: dist-electron/*.exe
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.blockmap
+            dist-electron/latest.yml
           if-no-files-found: error
           retention-days: 14
