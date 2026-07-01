@@ -2,6 +2,7 @@ const port = Number(process.argv[2] || 9223);
 const expectFirstRun = process.argv.includes("--expect-first-run");
 const expectNoFirstRun = process.argv.includes("--expect-no-first-run");
 const testInstallModal = process.argv.includes("--test-install-modal");
+const testModInteractions = process.argv.includes("--test-mod-interactions");
 
 async function main() {
   const targets = await fetch(`http://127.0.0.1:${port}/json`).then((response) => response.json());
@@ -24,8 +25,13 @@ async function main() {
       id: 1,
       method: "Runtime.evaluate",
       params: {
-        expression: `(() => {
+        expression: `(async () => {
           ${testInstallModal ? "document.getElementById('openInstallModal')?.click();" : ""}
+          ${testModInteractions ? `state.mods = [{ path: 'C:/test/mod_1', name: 'Test Mod', author: 'Codex', version: '1.0', raw_fields: {}, resolved_fields: {}, dependency_links: [], required_by: [] }];
+          renderMods();
+          document.querySelector('#modsTable tr')?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 120, clientY: 120 }));
+          selectMod('C:/test/mod_1');
+          await new Promise((resolve) => requestAnimationFrame(resolve));` : ""}
           const modsView = document.getElementById('modsView');
           const parentStyle = getComputedStyle(modsView.parentElement);
           const parentContentHeight = modsView.parentElement.clientHeight - parseFloat(parentStyle.paddingTop) - parseFloat(parentStyle.paddingBottom);
@@ -43,13 +49,18 @@ async function main() {
           dropZonesInInstallModal: document.querySelectorAll('#installModal #mainDropZone').length,
           installButton: Boolean(document.getElementById('openInstallModal')),
           installModalOpen: !document.getElementById('installModal')?.classList.contains('hidden'),
+          contextMenuOpen: !document.getElementById('modContextMenu')?.classList.contains('hidden'),
+          detailsOpen: document.getElementById('modsContentGrid')?.classList.contains('details-open'),
+          detailCloseButton: Boolean(document.querySelector('#detailPanel [data-detail-action="close"]')),
+          detailTransition: getComputedStyle(document.getElementById('detailPanel')).transitionDuration,
           libraryHeight: Math.round(modsView.getBoundingClientRect().height),
           libraryParentHeight: Math.round(modsView.parentElement.getBoundingClientRect().height),
           libraryFillsPage: Math.abs(modsView.getBoundingClientRect().height - parentContentHeight) < 2,
           firstRunModal: !document.getElementById('settingsModal')?.classList.contains('hidden')
           });
         })()`,
-        returnByValue: true
+        returnByValue: true,
+        awaitPromise: true
       }
     }));
   });
@@ -64,6 +75,9 @@ async function main() {
   }
   if (!value.libraryFillsPage || (testInstallModal && !value.installModalOpen)) {
     throw new Error(`Library/install modal smoke test failed: ${JSON.stringify(value)}`);
+  }
+  if (testModInteractions && (!value.contextMenuOpen || !value.detailsOpen || !value.detailCloseButton || value.detailTransition === "0s")) {
+    throw new Error(`Mod interaction smoke test failed: ${JSON.stringify(value)}`);
   }
   if (expectFirstRun && !value.firstRunModal) {
     throw new Error(`First-run source modal did not open: ${JSON.stringify(value)}`);

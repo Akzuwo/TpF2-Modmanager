@@ -64,14 +64,8 @@
               </div>
             </div>
 
-            <div class="content-grid">
-              <aside id="detailPanel" class="detail-panel">
-                <div class="empty-state">
-                  <div class="empty-mark">▦</div>
-                  <h3>Keine Mod ausgewaehlt</h3>
-                  <p class="muted">Waehle eine Zeile aus, um Beschreibung, Abhaengigkeiten und Rohfelder zu sehen.</p>
-                </div>
-              </aside>
+            <div id="modsContentGrid" class="content-grid">
+              <aside id="detailPanel" class="detail-panel" aria-hidden="true"></aside>
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -202,6 +196,14 @@
     </div>
 
     <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
+    <div id="modContextMenu" class="context-menu hidden" role="menu" aria-label="Mod verwalten">
+      <button type="button" data-context-action="details" role="menuitem">Details anzeigen</button>
+      <button type="button" data-context-action="expand" role="menuitem">Ganzseitige Details</button>
+      <button type="button" data-context-action="open" role="menuitem">Ordner öffnen</button>
+      <button type="button" data-context-action="link" role="menuitem">Workshop/Link öffnen</button>
+      <div class="context-menu-separator"></div>
+      <button type="button" data-context-action="delete" class="context-danger" role="menuitem">Mod löschen</button>
+    </div>
     <div id="floatingTooltip" class="floating-tooltip" role="tooltip"></div>
     <script src="./app.js"></script>
   </body>

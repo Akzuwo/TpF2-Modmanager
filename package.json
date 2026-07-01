@@ -1,6 +1,6 @@
 {
   "name": "tpf2-modmanager-electron",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Electron desktop app for managing Transport Fever 2 mods.",
   "private": true,
   "main": "electron/main.js",

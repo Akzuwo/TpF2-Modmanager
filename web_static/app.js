@@ -6,6 +6,8 @@ const state = {
   currentJobCancellable: false,
   duplicateMatches: [],
   pathInfoTimer: null,
+  contextModPath: "",
+  detailsCloseTimer: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -195,15 +197,56 @@ function renderMods() {
     `;
     row.addEventListener("click", () => selectMod(mod.path));
     row.addEventListener("dblclick", () => openDetailPage(mod));
+    row.addEventListener("contextmenu", (event) => showModContextMenu(event, mod));
     tbody.appendChild(row);
   }
 }
 
 function selectMod(path) {
+  window.clearTimeout(state.detailsCloseTimer);
   state.selectedPath = path;
   const mod = state.mods.find((item) => item.path === path);
   renderMods();
   renderDetails(mod);
+}
+
+function closeModDetails() {
+  state.selectedPath = "";
+  renderMods();
+  const grid = $("modsContentGrid");
+  const panel = $("detailPanel");
+  grid.classList.remove("details-open");
+  panel.setAttribute("aria-hidden", "true");
+  window.clearTimeout(state.detailsCloseTimer);
+  state.detailsCloseTimer = window.setTimeout(() => { panel.textContent = ""; }, 300);
+}
+
+function closeModContextMenu() {
+  $("modContextMenu").classList.add("hidden");
+  state.contextModPath = "";
+}
+
+function showModContextMenu(event, mod) {
+  event.preventDefault();
+  state.contextModPath = mod.path;
+  const menu = $("modContextMenu");
+  menu.querySelector('[data-context-action="link"]').classList.toggle("hidden", !mod.link);
+  menu.classList.remove("hidden");
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - rect.width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - rect.height - 8))}px`;
+  menu.querySelector('[data-context-action="details"]').focus();
+}
+
+async function runContextAction(action) {
+  const mod = state.mods.find((item) => item.path === state.contextModPath);
+  closeModContextMenu();
+  if (!mod) return;
+  if (action === "details") selectMod(mod.path);
+  else if (action === "expand") openDetailPage(mod);
+  else if (action === "open") await openPath(mod.path);
+  else if (action === "link") await openExternal(mod.link);
+  else if (action === "delete") await deleteMod(mod);
 }
 
 function detailMarkup(mod, fullPage = false) {
@@ -237,8 +280,10 @@ function detailMarkup(mod, fullPage = false) {
   const link = mod.link ? `<button data-detail-action="link" data-tooltip="Steam Workshop-Seite im Browser oeffnen">Workshop/Link oeffnen</button>` : "";
   const languages = mod.available_languages?.length ? mod.available_languages.join(", ") : "-";
   const expand = fullPage ? "" : `<button data-detail-action="expand" class="primary" data-tooltip="Details als eigene Seite im ganzen Fenster anzeigen">Ganzseitig anzeigen</button>`;
+  const close = fullPage ? "" : `<div class="detail-panel-toolbar"><button data-detail-action="close" class="icon-button" aria-label="Modinfo schließen" data-tooltip="Modinfo schließen">×</button></div>`;
 
   return `
+    ${close}
     <article class="detail-content ${fullPage ? "detail-content-full" : ""}">
       <div class="detail-hero">
         ${preview}
@@ -273,6 +318,7 @@ function detailMarkup(mod, fullPage = false) {
 }
 
 function bindDetailActions(container, mod) {
+  container.querySelector('[data-detail-action="close"]')?.addEventListener("click", closeModDetails);
   container.querySelector('[data-detail-action="open"]')?.addEventListener("click", () => openPath(mod.path));
   container.querySelector('[data-detail-action="link"]')?.addEventListener("click", () => openExternal(mod.link));
   container.querySelector('[data-detail-action="expand"]')?.addEventListener("click", () => openDetailPage(mod));
@@ -284,8 +330,14 @@ function bindDetailActions(container, mod) {
 
 function renderDetails(mod) {
   const panel = $("detailPanel");
+  if (!mod) {
+    closeModDetails();
+    return;
+  }
   panel.innerHTML = detailMarkup(mod);
-  if (mod) bindDetailActions(panel, mod);
+  bindDetailActions(panel, mod);
+  panel.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => $("modsContentGrid").classList.add("details-open"));
 }
 
 function openDetailPage(mod = state.mods.find((item) => item.path === state.selectedPath)) {
@@ -309,7 +361,7 @@ async function refreshMods() {
   state.mods = mods;
   if (!state.mods.some((mod) => mod.path === state.selectedPath)) {
     state.selectedPath = "";
-    renderDetails(null);
+    closeModDetails();
   }
   renderMods();
 }
@@ -612,10 +664,19 @@ async function init() {
   $("closeSettings").addEventListener("click", closeSettingsModal);
   $("cancelSettings").addEventListener("click", closeSettingsModal);
   $("settingsBackdrop").addEventListener("click", closeSettingsModal);
+  $("modContextMenu").querySelectorAll("[data-context-action]").forEach((button) => {
+    button.addEventListener("click", runAction(() => runContextAction(button.dataset.contextAction)));
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.("#modContextMenu")) closeModContextMenu();
+  });
+  window.addEventListener("blur", closeModContextMenu);
+  window.addEventListener("resize", closeModContextMenu);
   $("closeDetailPage").addEventListener("click", closeDetailPage);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
-      if (!$("detailPage").classList.contains("hidden")) closeDetailPage();
+      if (!$("modContextMenu").classList.contains("hidden")) closeModContextMenu();
+      else if (!$("detailPage").classList.contains("hidden")) closeDetailPage();
       else if (!$("installModal").classList.contains("hidden")) closeInstallModal();
       else closeSettingsModal();
     }

@@ -267,7 +267,15 @@
   }
 
   .content-grid {
-    @apply grid min-h-0 flex-1 grid-cols-[420px_minmax(0,1fr)] gap-4;
+    @apply grid min-h-0 flex-1;
+    grid-template-columns: 0 minmax(0, 1fr);
+    gap: 0;
+    transition: grid-template-columns 280ms cubic-bezier(0.22, 1, 0.36, 1), gap 280ms ease;
+  }
+
+  .content-grid.details-open {
+    grid-template-columns: 420px minmax(0, 1fr);
+    gap: 1rem;
   }
 
   .table-wrap {
@@ -319,6 +327,28 @@
   .detail-panel {
     @apply min-h-0 overflow-auto p-5;
     border-top: 4px solid #6a89a7;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(-18px) scale(0.985);
+    transform-origin: left center;
+    pointer-events: none;
+    transition: opacity 220ms ease, transform 280ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 280ms;
+  }
+
+  .content-grid.details-open .detail-panel {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0) scale(1);
+    pointer-events: auto;
+    transition-delay: 60ms, 0ms, 0s;
+  }
+
+  .detail-panel-toolbar {
+    @apply mb-3 flex justify-end;
+  }
+
+  .detail-panel-toolbar .icon-button {
+    @apply h-9 w-9;
   }
 
   .detail-content dl {
@@ -515,6 +545,26 @@
 
   .toast-host {
     @apply pointer-events-none fixed right-5 top-20 z-[70] grid w-[min(420px,calc(100vw-2rem))] gap-3;
+  }
+
+  .context-menu {
+    @apply fixed z-[100] grid min-w-56 overflow-hidden rounded-xl border border-[rgb(var(--line))] bg-[rgb(var(--panel))] p-1.5 shadow-2xl animate-modal-pop;
+  }
+
+  .context-menu button {
+    @apply w-full border-0 bg-transparent px-3 py-2 text-left shadow-none;
+  }
+
+  .context-menu button:hover {
+    @apply translate-y-0 bg-[rgb(var(--panel-soft))] shadow-none;
+  }
+
+  .context-menu-separator {
+    @apply my-1 border-t border-[rgb(var(--line))];
+  }
+
+  .context-menu .context-danger {
+    color: rgb(var(--danger));
   }
 
   .toast {
