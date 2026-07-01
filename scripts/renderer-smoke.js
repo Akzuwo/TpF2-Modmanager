@@ -1,4 +1,6 @@
 const port = Number(process.argv[2] || 9223);
+const expectFirstRun = process.argv.includes("--expect-first-run");
+const expectNoFirstRun = process.argv.includes("--expect-no-first-run");
 
 async function main() {
   const targets = await fetch(`http://127.0.0.1:${port}/json`).then((response) => response.json());
@@ -26,7 +28,12 @@ async function main() {
           styles: document.styleSheets.length,
           api: Boolean(window.desktopShell?.request),
           title: document.title,
-          errorToasts: document.querySelectorAll('.toast.error').length
+          errorToasts: document.querySelectorAll('.toast.error').length,
+          dark: document.documentElement.classList.contains('dark'),
+          themeDisabled: document.getElementById('themeToggle')?.disabled === true,
+          sourcePanelsInMain: document.querySelectorAll('main .path-panel').length,
+          sourcePanelsInSettings: document.querySelectorAll('#settingsModal .path-panel').length,
+          firstRunModal: !document.getElementById('settingsModal')?.classList.contains('hidden')
         })`,
         returnByValue: true
       }
@@ -36,6 +43,15 @@ async function main() {
   const value = JSON.parse(result.result.result.value);
   if (value.ready !== "complete" || value.styles < 1 || !value.api || value.title !== "TpF2 Modmanager" || value.errorToasts) {
     throw new Error(`Renderer smoke test failed: ${JSON.stringify(value)}`);
+  }
+  if (value.dark || !value.themeDisabled || value.sourcePanelsInMain !== 0 || value.sourcePanelsInSettings !== 1) {
+    throw new Error(`Renderer layout smoke test failed: ${JSON.stringify(value)}`);
+  }
+  if (expectFirstRun && !value.firstRunModal) {
+    throw new Error(`First-run source modal did not open: ${JSON.stringify(value)}`);
+  }
+  if (expectNoFirstRun && value.firstRunModal) {
+    throw new Error(`First-run source modal opened more than once: ${JSON.stringify(value)}`);
   }
   console.log(`renderer-smoke-ok ${JSON.stringify(value)}`);
 }

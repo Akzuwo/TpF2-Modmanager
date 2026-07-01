@@ -2,6 +2,7 @@ const fs = require("node:fs");
 
 const DEFAULT_CONFIG = Object.freeze({
   mods_path: "",
+  mod_source_intro_seen: false,
   language: "de",
   fallback_language: "en",
   app_language: "de",

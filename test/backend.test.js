@@ -116,6 +116,72 @@ test("language-specific strings win when a placeholder occurs multiple times", (
   assert.equal(english.name, "Correct English name");
 });
 
+test("mod parser resolves top-level variables used by the info table", (t) => {
+  const root = temporaryDirectory(t);
+  const directory = createMod(root, "dsd_auto_rename_1", `
+    local modName = "Auto Rename: Stations & Industries"
+    local modDescription = "Renames stations and industries."
+    local majorVersion = 1
+    local minorVersion = 3
+    local params_list = { { key = "rename", values = { "No", "Yes" } } }
+
+    function data()
+      return { info = {
+        name = modName,
+        description = modDescription,
+        majorVersion = majorVersion,
+        minorVersion = minorVersion,
+        authors = { { name = "Doug Dawson" } },
+        params = params_list,
+      } }
+    end
+  `);
+
+  const mod = parseModLua(path.join(directory, "mod.lua"), "de", "en");
+  assert.equal(mod.name, "Auto Rename: Stations & Industries");
+  assert.equal(mod.description, "Renames stations and industries.");
+  assert.equal(mod.version, "1.3");
+});
+
+test("parser handles dotted version tables, parenthesized strings and per-key language fallbacks", (t) => {
+  const root = temporaryDirectory(t);
+  const directory = createMod(root, "mixed_translation_1", `
+    local modVersion = { majorVersion = 2, minorVersion = 7 }
+    function data()
+      return { info = {
+        name = _("mod_name"),
+        description = _("mod_desc"),
+        minorVersion = modVersion.minorVersion,
+      } }
+    end
+  `, `
+    function data()
+      return {
+        en = { mod_name = ("Fallback name"), mod_desc = "English description" },
+        de = { mod_desc = ("Deutsche Beschreibung") },
+      }
+    end
+  `);
+
+  const mod = parseModLua(path.join(directory, "mod.lua"), "de", "en");
+  assert.equal(mod.name, "Fallback name");
+  assert.equal(mod.description, "Deutsche Beschreibung");
+  assert.equal(mod.version, "7");
+});
+
+test("parser discovers mod-specific strings Lua files", (t) => {
+  const root = temporaryDirectory(t);
+  const directory = createMod(root, "custom_strings_1", `
+    return { info = { name = _("custom_name") } }
+  `);
+  fs.writeFileSync(path.join(directory, "custom_mod_strings.lua"), `
+    return { de = { custom_name = "Eigener Dateiname" } }
+  `, "utf8");
+
+  const mod = parseModLua(path.join(directory, "mod.lua"), "de", "en");
+  assert.equal(mod.name, "Eigener Dateiname");
+});
+
 test("scanner resolves dependency links and preview", async (t) => {
   const root = temporaryDirectory(t);
   const base = createMod(root, "base_mod_1", `return { info = { name = "Base", minorVersion = 1 } }`);

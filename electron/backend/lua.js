@@ -140,6 +140,8 @@ function splitConcat(expression) {
 function evaluate(expression, variables = {}) {
   let value = String(expression || "").trim().replace(/,$/, "").trim();
   if (!value) return null;
+  const parenthesized = value.match(/^\(([\s\S]*)\)$/);
+  if (parenthesized) return evaluate(parenthesized[1], variables);
   const wrapped = value.match(/^_\(\s*([\s\S]+)\s*\)$/);
   if (wrapped) return evaluate(wrapped[1], variables);
   const doubleQuoted = value.match(/^"((?:[^"\\]|\\.)*)"$/s);
@@ -152,6 +154,12 @@ function evaluate(expression, variables = {}) {
   if (parts.length > 1) {
     const resolved = parts.map((part) => evaluate(part, variables));
     return resolved.some((item) => item === null) ? null : resolved.join("");
+  }
+  if (/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(value)) {
+    const [root, ...properties] = value.split(".");
+    let resolved = variables[root];
+    for (const property of properties) resolved = resolved && typeof resolved === "object" ? resolved[property] : null;
+    return resolved ?? null;
   }
   if (/^[A-Za-z_]\w*$/.test(value)) return variables[value] ?? value;
   if (/^-?\d+(?:\.\d+)?$/.test(value)) return value;
@@ -187,6 +195,11 @@ function parseVariables(text) {
       else if (char === "{") braceDepth += 1;
       else if (char === "}") braceDepth = Math.max(0, braceDepth - 1);
     }
+  }
+  for (const match of text.matchAll(/\blocal\s+([A-Za-z_]\w*)\s*=\s*\{/g)) {
+    const table = extractBalancedBlock(text, match.index + match[0].lastIndexOf("{"));
+    const parsed = parseStringTable(table, variables);
+    if (Object.keys(parsed).length) variables[match[1]] = parsed;
   }
   return variables;
 }
@@ -286,7 +299,10 @@ function loadTranslations(modDir, primaryLanguage, fallbackLanguage) {
   const topLevel = {};
   const candidates = walkFiles(modDir).filter((file) => {
     const relative = path.relative(modDir, file).replaceAll("\\", "/").toLowerCase();
-    return relative === "strings.lua" || relative.startsWith("strings/") || /^strings[^/]*\.json$/.test(relative);
+    return relative === "strings.lua"
+      || relative.startsWith("strings/")
+      || /(?:^|\/)[^/]*strings[^/]*\.lua$/.test(relative)
+      || /^strings[^/]*\.json$/.test(relative);
   });
   for (const file of candidates) {
     try {
@@ -301,11 +317,15 @@ function loadTranslations(modDir, primaryLanguage, fallbackLanguage) {
   const primary = normalizeLanguage(primaryLanguage);
   const fallback = normalizeLanguage(fallbackLanguage);
   const selected = [primary, fallback, "en", ...available].find((item) => available.includes(item)) || "";
+  const languageMap = {};
+  for (const language of ["en", fallback, primary]) {
+    if (languages[language]) Object.assign(languageMap, languages[language]);
+  }
   return {
     // A language-specific value is more precise than a generic top-level
     // fallback. This also keeps repeated placeholders from resolving to an
     // unrelated fallback that happened to be parsed later in the file.
-    map: { ...topLevel, ...(selected ? languages[selected] : {}) },
+    map: { ...topLevel, ...languageMap },
     available_languages: available,
     effective_language: selected,
     namespace: path.basename(modDir)
@@ -321,12 +341,13 @@ function resolveLocalized(value, translations) {
 
 function parseModLua(filePath, primaryLanguage = "de", fallbackLanguage = "en") {
   const content = readText(filePath);
+  const variables = parseVariables(content);
   const info = extractTableAfter(content, /\binfo\s*=\s*\{/) || content;
   const raw_fields = {};
   for (const entry of splitTopLevel(info)) {
     const [key, expression] = parseEntry(entry);
     if (!key || expression === null) continue;
-    raw_fields[key] = evaluate(expression) ?? expression.trim().replace(/,$/, "");
+    raw_fields[key] = evaluate(expression, variables) ?? expression.trim().replace(/,$/, "");
   }
   const translations = loadTranslations(path.dirname(filePath), primaryLanguage, fallbackLanguage);
   const resolved_fields = Object.fromEntries(Object.entries(raw_fields).map(([key, value]) => [key, resolveLocalized(value, translations)]));
@@ -334,13 +355,13 @@ function parseModLua(filePath, primaryLanguage = "de", fallbackLanguage = "en") 
   let author = "";
   if (authorBlock) {
     const authorMatch = /\bname\s*=\s*(?:_\(\s*)?(["'][\s\S]*?["']|[A-Za-z_]\w*)/.exec(authorBlock);
-    if (authorMatch) author = resolveLocalized(evaluate(authorMatch[1]) ?? authorMatch[1], translations);
+    if (authorMatch) author = resolveLocalized(evaluate(authorMatch[1], variables) ?? authorMatch[1], translations);
   }
   author ||= resolveLocalized(raw_fields.author || "", translations) || "Unbekannt";
   const dependencies = [];
   const dependencyTable = extractTableAfter(info, /\bdependencies\s*=\s*\{/);
   for (const entry of splitTopLevel(dependencyTable)) {
-    const value = evaluate(entry);
+    const value = evaluate(entry, variables);
     if (value) dependencies.push(value);
   }
   const major = raw_fields.majorVersion || "";

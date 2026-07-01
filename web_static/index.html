@@ -45,32 +45,12 @@
             <h2 class="text-xl font-semibold">Mod-Bibliothek</h2>
           </div>
           <div class="flex items-center gap-2">
-            <button id="themeToggle" class="icon-button" data-tooltip="Farbschema wechseln" data-tooltip-position="bottom" aria-label="Darkmode umschalten">◐</button>
+            <button id="themeToggle" class="icon-button hidden" data-tooltip="Darkmode ist vorübergehend deaktiviert" data-tooltip-position="bottom" aria-label="Darkmode umschalten" disabled>◐</button>
             <button id="openSettings" class="icon-button" data-tooltip="Einstellungen konfigurieren" data-tooltip-position="bottom" aria-label="Einstellungen">⚙</button>
           </div>
         </header>
 
-        <div class="grid h-[calc(100vh-4rem)] grid-rows-[auto_auto_auto_1fr] gap-4 overflow-hidden p-5">
-          <section class="path-panel">
-            <div class="path-copy">
-              <span class="eyebrow">Mod-Quelle</span>
-              <h3>Welchen Mod-Ordner soll ich scannen?</h3>
-              <p id="pathHint">Setze hier den lokalen Transport Fever 2 Mods-Ordner. Genau dieser Pfad wird gescannt und als Installationsziel verwendet.</p>
-            </div>
-            <div class="path-controls">
-              <label>
-                <span>Mod-Ordner</span>
-                <input id="modsPath" placeholder="z.B. C:\Program Files (x86)\Steam\userdata\...\1066780\local\mods" />
-              </label>
-              <div class="button-row">
-                <button id="browseModsPath" data-tooltip="Mod-Ordner auf Festplatte suchen">Ordner waehlen</button>
-                <button id="savePath" data-tooltip="Ausgewaehlten Pfad als Standard speichern">Speichern</button>
-                <button id="scan" class="primary" data-tooltip="Mod-Ordner scannen und Liste aktualisieren">Scannen</button>
-              </div>
-              <div id="pathStatus" class="path-status warn">Kein Mod-Ordner geprueft.</div>
-            </div>
-          </section>
-
+        <div class="grid h-[calc(100vh-4rem)] grid-rows-[auto_auto_1fr] gap-4 overflow-hidden p-5">
           <section id="mainDropZone" class="main-drop-zone" data-tooltip="Mod-ZIP/RAR/7Z hierhin ziehen zum automatischen Entpacken & Installieren" data-tooltip-position="bottom">
             <div class="drop-icon">↓</div>
             <div class="min-w-0 flex-1">
@@ -156,10 +136,30 @@
         <div class="section-header modal-header">
           <div>
             <h2 id="settingsTitle">Einstellungen</h2>
-            <p>Sprache, Workshop-Pfade und Backend-Verhalten.</p>
+            <p id="settingsDescription">Mod-Quellen, Sprache und Backend-Verhalten.</p>
           </div>
           <button id="closeSettings" class="icon-button" data-tooltip="Schliessen" data-tooltip-position="left" aria-label="Schliessen">×</button>
         </div>
+
+        <section class="path-panel settings-source-panel">
+          <div class="path-copy">
+            <span class="eyebrow">Mod-Quelle</span>
+            <h3>Welchen Mod-Ordner soll ich scannen?</h3>
+            <p id="pathHint">Dieser Pfad wird gescannt und als Installationsziel verwendet. Du kannst ihn später jederzeit über die Einstellungen ändern.</p>
+          </div>
+          <div class="path-controls">
+            <label>
+              <span>Mod-Ordner</span>
+              <input id="modsPath" placeholder="z.B. C:\Program Files (x86)\Steam\userdata\...\1066780\local\mods" />
+            </label>
+            <div class="button-row">
+              <button id="browseModsPath" type="button" data-tooltip="Mod-Ordner auf Festplatte suchen">Ordner waehlen</button>
+              <button id="savePath" type="button" data-tooltip="Ausgewaehlten Pfad als Standard speichern">Speichern</button>
+              <button id="scan" type="button" class="primary" data-tooltip="Mod-Ordner scannen und Liste aktualisieren">Scannen</button>
+            </div>
+            <div id="pathStatus" class="path-status warn">Kein Mod-Ordner geprueft.</div>
+          </div>
+        </section>
 
         <div class="settings-grid">
           <label data-tooltip="Sprache des Modmanagers">App-Sprache <select id="app_language"><option value="de">Deutsch</option><option value="en">English</option></select></label>

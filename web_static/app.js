@@ -10,6 +10,7 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const shell = window.desktopShell || null;
+const DARK_MODE_ENABLED = false;
 
 async function api(path, options = {}) {
   if (shell?.request) return shell.request(path, options);
@@ -57,22 +58,30 @@ function switchView(name) {
   document.querySelector(`[data-view="${name}"]`).classList.add("active");
 }
 
-function applyTheme(theme) {
+function applyTheme(theme, persist = true) {
   const isDark = theme === "dark";
   document.documentElement.classList.toggle("dark", isDark);
-  localStorage.setItem("tpf2-theme", isDark ? "dark" : "light");
+  if (persist) localStorage.setItem("tpf2-theme", isDark ? "dark" : "light");
   $("themeToggle").textContent = isDark ? "☀" : "◐";
 }
 
 function initTheme() {
+  if (!DARK_MODE_ENABLED) {
+    applyTheme("light", false);
+    return;
+  }
   const saved = localStorage.getItem("tpf2-theme");
   const preferred = window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   applyTheme(saved || preferred);
 }
 
-function openSettingsModal() {
+function openSettingsModal(firstRun = false) {
+  $("settingsTitle").textContent = firstRun ? "Mod-Quelle einrichten" : "Einstellungen";
+  $("settingsDescription").textContent = firstRun
+    ? "Wähle einmalig den Ordner aus, in dem deine lokalen Mods liegen."
+    : "Mod-Quellen, Sprache und Backend-Verhalten.";
   $("settingsModal").classList.remove("hidden");
-  $("closeSettings").focus();
+  (firstRun ? $("modsPath") : $("closeSettings")).focus();
 }
 
 function closeSettingsModal() {
@@ -159,7 +168,7 @@ function renderMods() {
       <td colspan="4">
         <div class="table-empty">
           <strong>Noch keine Mods geladen</strong>
-          <span>Waehle oben dein Transport Fever 2 Mod-Verzeichnis aus. Danach startet der Scan automatisch oder du klickst auf Scannen.</span>
+          <span>Lege den Transport Fever 2 Mod-Ordner in den Einstellungen fest und starte dort den Scan.</span>
         </div>
       </td>
     `;
@@ -321,6 +330,7 @@ async function scanCurrentPath() {
   }
   await saveConfig({ mods_path: $("modsPath").value.trim() });
   await startJob("/api/scan");
+  closeSettingsModal();
 }
 
 async function pollJob(jobId) {
@@ -474,7 +484,8 @@ async function installPaths(paths) {
   }
   const info = await refreshPathInfo();
   if (!info.exists || !info.is_dir || info.status === "single_mod") {
-    notify("Setze zuerst oben den Ziel-Mod-Ordner.", "warn");
+    notify("Setze zuerst in den Einstellungen den Ziel-Mod-Ordner.", "warn");
+    openSettingsModal(false);
     return;
   }
   await startJob("/api/install", { paths });
@@ -579,10 +590,12 @@ async function init() {
   document.querySelectorAll(".rail-button").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
   });
-  $("themeToggle").addEventListener("click", () => {
-    applyTheme(document.documentElement.classList.contains("dark") ? "light" : "dark");
-  });
-  $("openSettings").addEventListener("click", openSettingsModal);
+  if (DARK_MODE_ENABLED) {
+    $("themeToggle").addEventListener("click", () => {
+      applyTheme(document.documentElement.classList.contains("dark") ? "light" : "dark");
+    });
+  }
+  $("openSettings").addEventListener("click", () => openSettingsModal(false));
   $("closeSettings").addEventListener("click", closeSettingsModal);
   $("cancelSettings").addEventListener("click", closeSettingsModal);
   $("settingsBackdrop").addEventListener("click", closeSettingsModal);
@@ -634,6 +647,13 @@ async function init() {
   await refreshPathInfo(config.mods_path || "");
   await refreshMods();
   await refreshLogs();
+  if (!config.mod_source_intro_seen) {
+    await api("/api/config", {
+      method: "POST",
+      body: JSON.stringify({ mod_source_intro_seen: true }),
+    });
+    openSettingsModal(true);
+  }
 }
 
 init().catch((error) => showError(error, "Start fehlgeschlagen"));

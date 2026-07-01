@@ -442,6 +442,10 @@
     @apply w-full table-fixed text-xs;
   }
 
+  .settings-source-panel {
+    @apply mb-4 shadow-none;
+  }
+
   .field-table th,
   .field-table td {
     @apply whitespace-normal align-top;
